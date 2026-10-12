@@ -93,6 +93,28 @@ GET https://dala.efito.uz/api/v1/users/login/karantin?code=...
 `Authorization` header and does not try to refresh on a 401 — at this point
 there is no session yet to refresh.
 
+## The camera screen
+
+The scan runs on its own near-black page: over the camera the app bar keeps
+only its close button, the preview sits in a circle whose ring is a dial of
+ticks that light up with the readiness progress, and the state is read from a
+pill under it plus three dots — centred, distance, live — so the user can see
+*which* gate is still open instead of one line of advice at a time.
+
+A white page in a dark room is both ugly and useless, which is the other half
+of this: `frame_luminance.dart` samples the preview's average luma every
+400 ms and `LowLightDetector` turns that into a stable verdict (overlapping
+thresholds, and a flip has to hold for three samples, or the screen would
+strobe). When the room is dark the screen becomes the flash the front camera
+does not have — `screen_torch.dart` pins the brightness to maximum through
+`screen_brightness`, and the page turns into a warm pale lamp.
+
+Two things are deliberate there. The brightness call is fired and not awaited,
+because it goes through a platform channel that can be slow or never answer,
+and the pale backdrop — which is most of the light the face gets — must not
+wait on it. And once the user presses the light button themselves, the
+automatic verdict stops moving it.
+
 ## Testing notes
 
 - There is no staging Karantin ID. Every run authenticates against production
@@ -101,3 +123,5 @@ there is no session yet to refresh.
   is wired to `kDebugMode` in `login_form.dart` so release builds stay quiet.
 - The capture is still un-mirrored while the preview is mirrored, which is the
   one known open item in this flow.
+- The screen light cannot be judged in a widget test: the brightness plugin
+  never answers there. Its effect has to be seen on a device, in a dark room.

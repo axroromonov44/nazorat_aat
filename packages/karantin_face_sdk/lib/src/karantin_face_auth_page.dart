@@ -3,7 +3,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:flutter/services.dart'
+    show HapticFeedback, SystemUiOverlayStyle;
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -62,6 +63,14 @@ const _nonFaceTerms = [
 
 const _errorColor = Color(0xFFD32F2F);
 
+// The camera phase runs on its own near-black page: the preview is the only
+// bright thing on screen, and a dark room no longer gets a white page shoved
+// in the user's face.
+const _cameraBackground = Color(0xFF07090C);
+
+// ...unless the screen light is on, when that same page becomes the lamp.
+const _lampBackground = Color(0xFFFFF4E2);
+
 class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
   late final KarantinFaceRemoteDataSource _dataSource =
       widget.dataSource ?? KarantinFaceRemoteDataSource(config: widget.config);
@@ -81,6 +90,16 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
   bool _isUploading = false;
   bool _isUploaded = false;
   bool _permissionDialogOpen = false;
+  bool _torchOn = false;
+
+  /// The scanner phases own the page's colours; the form and the error view
+  /// stay on the ordinary light background.
+  bool get _isCameraPhase => _phase == _Phase.face || _phase == _Phase.success;
+
+  Color? get _pageColor {
+    if (!_isCameraPhase) return null;
+    return _torchOn ? _lampBackground : _cameraBackground;
+  }
 
   @override
   void initState() {
@@ -287,11 +306,24 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
 
   @override
   Widget build(BuildContext context) {
+    final onLamp = _isCameraPhase && _torchOn;
+    final foreground = _isCameraPhase
+        ? (onLamp ? const Color(0xFF0E1116) : Colors.white)
+        : Colors.white;
+
     return Scaffold(
+      backgroundColor: _pageColor,
       appBar: AppBar(
         title: Text(_strings.appBarTitle),
-        backgroundColor: _config.primaryColor,
-        foregroundColor: Colors.white,
+        // Over the camera the bar carries nothing but the close button, so it
+        // has no reason to draw a green band across the dark page.
+        backgroundColor:
+            _isCameraPhase ? Colors.transparent : _config.primaryColor,
+        foregroundColor: foreground,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle:
+            onLamp ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: () {
@@ -300,33 +332,38 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
           },
         ),
       ),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, anim) => FadeTransition(
-                  opacity: anim,
-                  child: SlideTransition(
-                    position: Tween(
-                      begin: const Offset(0, 0.04),
-                      end: Offset.zero,
-                    ).animate(anim),
-                    child: child,
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+        color: _pageColor ?? Theme.of(context).scaffoldBackgroundColor,
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 320),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween(
+                        begin: const Offset(0, 0.04),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: child,
+                    ),
                   ),
-                ),
-                // face and success share one key so the live scanner (and its
-                // camera) is never torn down between those phases.
-                child: KeyedSubtree(
-                  key: ValueKey(
-                    _phase == _Phase.success ? _Phase.face : _phase,
+                  // face and success share one key so the live scanner (and its
+                  // camera) is never torn down between those phases.
+                  child: KeyedSubtree(
+                    key: ValueKey(
+                      _phase == _Phase.success ? _Phase.face : _phase,
+                    ),
+                    child: _buildBody(),
                   ),
-                  child: _buildBody(),
                 ),
               ),
             ),
@@ -367,6 +404,9 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
           isUploaded: _isUploaded,
           onError: _showError,
           onPermissionDenied: _onCameraPermissionDenied,
+          onTorchChanged: (on) {
+            if (mounted) setState(() => _torchOn = on);
+          },
         );
     }
   }

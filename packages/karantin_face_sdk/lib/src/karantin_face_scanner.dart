@@ -6,15 +6,17 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show DeviceOrientation;
+import 'package:flutter/services.dart' show DeviceOrientation, HapticFeedback;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 
 import 'camera_input_image.dart';
 import 'face_readiness.dart';
 import 'face_scan_animation.dart';
+import 'frame_luminance.dart';
 import 'karantin_face_remote_datasource.dart';
 import 'raw_camera_frame.dart';
+import 'screen_torch.dart';
 
 /// Native face scanner, a faithful port of the web client's `FaceDetection`
 /// component + `useFaceDetection` hook.
@@ -32,6 +34,7 @@ class KarantinFaceScanner extends StatefulWidget {
     required this.isUploaded,
     this.onError,
     this.onPermissionDenied,
+    this.onTorchChanged,
   });
 
   /// Called once a payload has been captured. The parent performs the upload;
@@ -45,16 +48,29 @@ class KarantinFaceScanner extends StatefulWidget {
   /// can show a platform-native "open settings" dialog.
   final VoidCallback? onPermissionDenied;
 
+  /// Called when the screen light goes on or off, so the page behind the
+  /// scanner can turn pale with it — that backdrop is most of the light the
+  /// face actually gets.
+  final ValueChanged<bool>? onTorchChanged;
+
   @override
   State<KarantinFaceScanner> createState() => _KarantinFaceScannerState();
 }
 
 class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     with WidgetsBindingObserver {
-  static const _readyColor = Color(0xFF228BE6); // blue
-  static const _verifiedColor = Color(0xFF07C23C); // green
-  static const _holdColor = Color(0xFFFFA500); // orange
-  static const _errorColor = Color(0xFFFF0000); // red
+  // Accents are picked for the dark backdrop the scanner now sits on: pure
+  // red and pure orange vibrate against near-black, so both are pulled back.
+  static const _readyColor = Color(0xFF4DA3FF); // blue
+  static const _verifiedColor = Color(0xFF2BD96B); // green
+  static const _holdColor = Color(0xFFFFB64D); // amber
+  static const _errorColor = Color(0xFFFF6B70); // red
+  static const _idleColor = Color(0xFF8A94A6); // unlit checklist dot
+  static const _lampColor = Color(0xFFFFF4E2); // the screen light's own warmth
+
+  // How often the frame brightness is sampled. The scan itself needs every
+  // frame it can get; the room's light level changes far more slowly.
+  static const _lumaIntervalMs = 400;
 
   // Detection pacing: process at most one frame per interval.
   static const _detectionIntervalMs = 150;
@@ -92,6 +108,20 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
   int _readyFrames = 0;
   final List<Rect> _positions = [];
 
+  // Screen light. The front camera has no flash, so "the torch" here means
+  // the screen: brightness pinned to maximum and the page turned pale.
+  final ScreenTorch _torch = ScreenTorch();
+  final LowLightDetector _lowLight = LowLightDetector();
+  bool _torchOn = false;
+  // Once the user has pressed the button, the automatic verdict stops moving
+  // it: being overruled by the app you just corrected is infuriating.
+  bool _torchManual = false;
+  bool _isDarkRoom = false;
+  int _lastLumaMs = 0;
+
+  bool _isLive = false;
+  FaceReadinessReason _reason = FaceReadinessReason.notCentered;
+
   int? _countdown;
   Timer? _countdownTimer;
   bool _isVerified = false;
@@ -124,6 +154,15 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The brightness override has to go while the app is away, or the phone
+    // sits at full brightness in the recents list and burns battery there.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      unawaited(_torch.suspend());
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_torch.resume());
+    }
+
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     if (state == AppLifecycleState.inactive ||
@@ -137,6 +176,9 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Nothing else restores the brightness while the app stays alive, so
+    // leaving the scanner must hand it back.
+    unawaited(_torch.dispose());
     _countdownTimer?.cancel();
     _stopStream();
     _controller?.dispose();
@@ -225,6 +267,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
       _collectBurstFrame(image);
       return;
     }
+    _sampleLight(image);
     if (_hasCaptured || _processing || _countdown != null) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -233,6 +276,43 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
 
     _processing = true;
     _processFrame(image).whenComplete(() => _processing = false);
+  }
+
+  /// Watches how much light the camera is getting and, in a dark room, turns
+  /// the screen into the flash the front camera does not have.
+  void _sampleLight(CameraImage image) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastLumaMs < _lumaIntervalMs) return;
+    _lastLumaMs = now;
+
+    // With the light on the camera sees what we added, so calling the room lit
+    // again takes a much brighter frame; otherwise the two states would fight.
+    final flipped = _lowLight.add(
+      estimateFrameLuma(image),
+      brightAbove: _torchOn ? 150 : null,
+    );
+    if (!flipped || !mounted) return;
+
+    final isDark = _lowLight.isDark;
+    setState(() => _isDarkRoom = isDark);
+    if (!_torchManual) _setTorch(isDark);
+  }
+
+  void _toggleTorch() {
+    HapticFeedback.selectionClick();
+    _torchManual = true;
+    _setTorch(!_torchOn);
+  }
+
+  void _setTorch(bool on) {
+    if (_torchOn == on) return;
+    setState(() => _torchOn = on);
+    widget.onTorchChanged?.call(on);
+    // The pale backdrop is most of the light, and it costs nothing; the
+    // brightness pin goes through a platform channel that can be slow, or on
+    // some devices never answer at all. Waiting for it would leave the light
+    // half-applied, so it is fired and forgotten.
+    unawaited(on ? _torch.turnOn() : _torch.turnOff());
   }
 
   Future<void> _processFrame(CameraImage image) async {
@@ -256,6 +336,8 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     if (!mounted || _hasCaptured || _countdown != null) return;
 
     if (faces.isEmpty) {
+      _isLive = false;
+      _reason = FaceReadinessReason.notCentered;
       _applyReadiness(step: 0, progress: 0, centered: false, resetReady: true);
       return;
     }
@@ -301,6 +383,8 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
       _isCentered = centered;
       _progress = readiness.progress;
       _step = readiness.step;
+      _isLive = isLive;
+      _reason = readiness.reason;
     });
 
     if (readiness.shouldStartCountdown) {
@@ -502,9 +586,9 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
 
   // ---------------------------------------------------------------- UI
 
-  /// One colour drives the whole scanner: the ring, the glow and the status
-  /// text. Keeping a single source avoids the old mix of borders that could
-  /// disagree with each other.
+  /// One colour drives the whole scanner: the ring, the glow, the status dot
+  /// and its text. Keeping a single source avoids the old mix of borders that
+  /// could disagree with each other.
   Color get _accentColor {
     if (!_cameraReady) return _readyColor;
     if (_isVerified || widget.isUploaded) return _verifiedColor;
@@ -513,6 +597,11 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     if (_step >= 1) return _holdColor;
     return _errorColor;
   }
+
+  /// With the screen light on, the page behind the scanner is a pale lamp, so
+  /// every accent has to be pulled towards ink to stay readable on it.
+  Color _onSurface(Color color) =>
+      _torchOn ? Color.lerp(color, const Color(0xFF0E1116), 0.42)! : color;
 
   String get _statusText {
     if (widget.isUploaded) {
@@ -524,6 +613,22 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     return kFaceInstructions[_step.clamp(0, kFaceInstructions.length - 1)];
   }
 
+  /// The three gates the capture waits on, so the user can see *which* one is
+  /// still open instead of only reading one line of advice at a time.
+  bool get _distanceOk {
+    if (_isVerified) return true;
+    switch (_reason) {
+      case FaceReadinessReason.waitingLiveness:
+      case FaceReadinessReason.ready:
+        return true;
+      case FaceReadinessReason.notCentered:
+      case FaceReadinessReason.tooFar:
+      case FaceReadinessReason.moveCloser:
+      case FaceReadinessReason.tooClose:
+        return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = _accentColor;
@@ -531,33 +636,200 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _buildTopBar(),
+        const SizedBox(height: 10),
         _buildPreview(accent),
-        const SizedBox(height: 22),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 280),
-          transitionBuilder: (child, anim) => FadeTransition(
-            opacity: anim,
-            child: SlideTransition(
-              position: Tween(
-                begin: const Offset(0, 0.3),
-                end: Offset.zero,
-              ).animate(anim),
-              child: child,
+        const SizedBox(height: 24),
+        _buildStatusPill(accent),
+        const SizedBox(height: 16),
+        _buildChecklist(),
+      ],
+    );
+  }
+
+  Widget _buildTopBar() {
+    final hint = _torchOn
+        ? 'Ekran chirogʻi yoniq'
+        : (_isDarkRoom ? 'Yorugʻlik kam' : '');
+
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 240),
+              opacity: hint.isEmpty ? 0 : 1,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.wb_incandescent_outlined,
+                    size: 16,
+                    color: _onSurface(_holdColor),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      hint.isEmpty ? ' ' : hint,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: _onSurface(_holdColor),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          child: Text(
-            _statusText,
-            key: ValueKey(_statusText),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.1,
-              color: accent,
+          _buildTorchButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTorchButton() {
+    final on = _torchOn;
+    final tint = on ? const Color(0xFF8A5A00) : Colors.white;
+
+    return Semantics(
+      button: true,
+      label: on ? 'Ekran chirogʻini oʻchirish' : 'Ekran chirogʻini yoqish',
+      child: InkWell(
+        onTap: _toggleTorch,
+        borderRadius: BorderRadius.circular(22),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+          decoration: BoxDecoration(
+            color: on
+                ? _lampColor.withValues(alpha: 0.85)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: on
+                  ? const Color(0xFF8A5A00).withValues(alpha: 0.35)
+                  : Colors.white.withValues(alpha: 0.16),
             ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                on ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+                size: 18,
+                color: tint,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Chiroq',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: tint,
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusPill(Color accent) {
+    final tone = _onSurface(accent);
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, 0.3),
+            end: Offset.zero,
+          ).animate(anim),
+          child: child,
+        ),
+      ),
+      child: Container(
+        key: ValueKey(_statusText),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+        decoration: BoxDecoration(
+          color: _torchOn
+              ? Colors.black.withValues(alpha: 0.05)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: tone.withValues(alpha: 0.38)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PulsingDot(color: tone),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                _statusText,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.1,
+                  color: tone,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChecklist() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildCheck('Markazda', _isCentered || _isVerified),
+        _buildCheck('Masofa', _distanceOk),
+        _buildCheck('Jonli', _isLive || _isVerified),
       ],
+    );
+  }
+
+  Widget _buildCheck(String label, bool active) {
+    final color = _onSurface(active ? _verifiedColor : _idleColor);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      child: Row(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: active ? 1 : 0.45),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.5),
+                        blurRadius: 6,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+              color: color.withValues(alpha: active ? 1 : 0.6),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -592,6 +864,25 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // The screen light's own halo. The pale page behind the scanner does
+          // most of the lighting; this is the part of it that hugs the face.
+          IgnorePointer(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 280),
+              opacity: _torchOn ? 1 : 0,
+              child: Container(
+                width: box,
+                height: box,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [_lampColor, Color(0x00FFF4E2)],
+                    stops: [0.62, 1],
+                  ),
+                ),
+              ),
+            ),
+          ),
           // Soft halo behind everything; it never draws an edge of its own, so
           // it cannot look like a second ring.
           AnimatedContainer(
@@ -603,8 +894,8 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: accent.withValues(alpha: _cameraReady ? 0.28 : 0.0),
-                  blurRadius: 28,
+                  color: accent.withValues(alpha: _cameraReady ? 0.3 : 0.0),
+                  blurRadius: 30,
                   spreadRadius: 2,
                 ),
               ],
@@ -625,8 +916,9 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
               ),
             ),
           ),
-          // Exactly one ring: a track plus the progress arc, painted on a
-          // single circle that is concentric with the preview by construction.
+          // Exactly one ring: a segmented track whose ticks light up with the
+          // progress, painted on a single circle that is concentric with the
+          // preview by construction.
           IgnorePointer(
             child: TweenAnimationBuilder<double>(
               tween: Tween(end: (_progress / 100).clamp(0.0, 1.0)),
@@ -639,6 +931,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
                   color: accent,
                   stroke: stroke,
                   visible: _cameraReady,
+                  onLight: _torchOn,
                 ),
               ),
             ),
@@ -656,7 +949,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
         color: Color(0xFF111111),
         child: Center(
           child: CircularProgressIndicator(
-            color: Color(0xFF07C23C),
+            color: _verifiedColor,
             strokeWidth: 2.5,
           ),
         ),
@@ -701,25 +994,32 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
 
   Widget _buildCountdown(int countdown) {
     return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.9, end: 1.04),
-      duration: const Duration(milliseconds: 625),
-      curve: Curves.easeInOut,
+      tween: Tween(begin: 0.84, end: 1.0),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutBack,
       builder: (context, scale, child) =>
           Transform.scale(scale: scale, child: child),
       child: Container(
-        width: 112,
-        height: 112,
+        width: 128,
+        height: 128,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.black.withValues(alpha: 0.28),
+          color: Colors.black.withValues(alpha: 0.24),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.38),
+            width: 1.5,
+          ),
         ),
         child: Text(
           '${countdown + 1}',
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 52,
-            fontWeight: FontWeight.w700,
+            fontSize: 58,
+            // A thin numeral reads as a clock, not as an alert.
+            fontWeight: FontWeight.w300,
+            height: 1,
+            shadows: [Shadow(color: Color(0x66000000), blurRadius: 12)],
           ),
         ),
       ),
@@ -730,23 +1030,116 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     // No border here: the ring above the preview is the only outline, so the
     // overlay just dims the frame and runs the scan line.
     return ColoredBox(
-      color: Colors.black.withValues(alpha: 0.28),
+      color: Colors.black.withValues(alpha: 0.3),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const FaceScanAnimation(),
-          if (widget.isUploading)
-            const Center(
-              child: Text(
-                'Tekshirilmoqda...',
-                style: TextStyle(
-                  color: Color(0xFF00FF88),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+          const FaceScanAnimation(scanColor: _verifiedColor),
+          if (widget.isUploaded)
+            const Center(child: _SuccessCheck(color: _verifiedColor))
+          else if (widget.isUploading)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.42),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Tekshirilmoqda...',
+                  style: TextStyle(
+                    color: _verifiedColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The status pill's dot, breathing so a long wait never looks frozen.
+class _PulsingDot extends StatefulWidget {
+  const _PulsingDot({required this.color});
+
+  final Color color;
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t = Curves.easeInOut.transform(_controller.value);
+        return Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.color.withValues(alpha: 0.45 + 0.55 * t),
+            boxShadow: [
+              BoxShadow(
+                color: widget.color.withValues(alpha: 0.4 * t),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The tick that lands on the face once the backend has accepted it.
+class _SuccessCheck extends StatelessWidget {
+  const _SuccessCheck({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.6, end: 1),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) =>
+          Transform.scale(scale: scale, child: child),
+      child: Container(
+        width: 86,
+        height: 86,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withValues(alpha: 0.18),
+          border: Border.all(color: color, width: 2),
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 24),
+          ],
+        ),
+        child: Icon(Icons.check_rounded, size: 48, color: color),
       ),
     );
   }
@@ -769,20 +1162,31 @@ double previewBoxAspect({
   return isLandscape ? aspectRatio : 1 / aspectRatio;
 }
 
-/// Draws the scanner's single ring: a faint full-circle track with the progress
-/// arc (plus a soft glow pass) on top, starting at 12 o'clock.
+/// Draws the scanner's single ring: a dial of short ticks that light up with
+/// the progress, starting at 12 o'clock.
+///
+/// Ticks rather than one solid arc: a dial makes a half-finished scan legible
+/// at a glance, and the gaps keep the ring from reading as a second border
+/// around the preview.
 class _ScannerRingPainter extends CustomPainter {
   const _ScannerRingPainter({
     required this.progress,
     required this.color,
     required this.stroke,
     required this.visible,
+    required this.onLight,
   });
 
   final double progress;
   final Color color;
   final double stroke;
   final bool visible;
+
+  /// True while the screen light is on, when the unlit ticks have to sit on a
+  /// pale page instead of a dark one.
+  final bool onLight;
+
+  static const int _ticks = 72;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -794,33 +1198,43 @@ class _ScannerRingPainter extends CustomPainter {
       size.height - stroke,
     );
 
-    final track = Paint()
+    const startAngle = -math.pi / 2;
+    const segment = 2 * math.pi / _ticks;
+    // The gap is what makes it a dial; the remainder is the tick itself.
+    const gap = segment * 0.45;
+    const tick = segment - gap;
+
+    final dim = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
-      ..color = color.withValues(alpha: 0.18);
-    canvas.drawOval(rect, track);
+      ..color = (onLight ? Colors.black : Colors.white)
+          .withValues(alpha: onLight ? 0.16 : 0.18);
 
-    final value = progress.clamp(0.0, 1.0);
-    if (value <= 0) return;
-
-    const startAngle = -math.pi / 2;
-    final sweep = 2 * math.pi * value;
+    final lit = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..color = color;
 
     final glow = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
-      ..color = color.withValues(alpha: 0.45)
+      ..color = color.withValues(alpha: 0.5)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
-    canvas.drawArc(rect, startAngle, sweep, false, glow);
 
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-    canvas.drawArc(rect, startAngle, sweep, false, arc);
+    final litCount = (progress.clamp(0.0, 1.0) * _ticks).round();
+
+    for (var i = 0; i < _ticks; i++) {
+      final from = startAngle + i * segment + gap / 2;
+      if (i < litCount) {
+        canvas.drawArc(rect, from, tick, false, glow);
+        canvas.drawArc(rect, from, tick, false, lit);
+      } else {
+        canvas.drawArc(rect, from, tick, false, dim);
+      }
+    }
   }
 
   @override
@@ -828,7 +1242,8 @@ class _ScannerRingPainter extends CustomPainter {
       old.progress != progress ||
       old.color != color ||
       old.stroke != stroke ||
-      old.visible != visible;
+      old.visible != visible ||
+      old.onLight != onLight;
 }
 
 // ---------------------------------------------------------------------------
