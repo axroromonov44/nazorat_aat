@@ -9,6 +9,7 @@ import '../bloc/auth_bloc.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:karantin_face_sdk/karantin_face_sdk.dart';
 import '../../../../core/constants/karantin_config.dart';
+import '../../../../core/network/diagnostics_interceptor.dart';
 import '../pages/oneid_webview_page.dart';
 import 'login_metrics.dart';
 
@@ -67,11 +68,16 @@ class _LoginFormState extends State<LoginForm> {
     final authBloc = context.read<AuthBloc>();
     final code = await KarantinFace.authenticate(
       context,
-      config: const KarantinFaceConfig(
+      config: KarantinFaceConfig(
         clientId: KarantinIdConfig.clientId,
         redirectUri: KarantinIdConfig.redirectUri,
         primaryColor: kGreen,
         debugLogging: kDebugMode,
+        // Every step of the login lands in the diagnostics log, like the rest
+        // of the app's traffic. Without this a refused login left nothing
+        // behind: the one failure an inspector cannot work around was also the
+        // one the exported log said nothing about.
+        interceptors: [DiagnosticsInterceptor()],
       ),
     );
     debugPrint('[KarantinID] native face auth returned code=$code');

@@ -55,6 +55,9 @@ class KarantinFaceRemoteDataSource {
     _dio.interceptors.add(CookieManager(_cookieJar));
     _redirectDio.interceptors.add(CookieManager(_cookieJar));
 
+    _dio.interceptors.addAll(config.interceptors);
+    _redirectDio.interceptors.addAll(config.interceptors);
+
     if (config.debugLogging) {
       _dio.interceptors
           .add(LogInterceptor(requestBody: true, responseBody: true));

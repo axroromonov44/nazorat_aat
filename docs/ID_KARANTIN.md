@@ -143,6 +143,19 @@ and the pale backdrop — which is most of the light the face gets — must not
 wait on it. And once the user presses the light button themselves, the
 automatic verdict stops moving it.
 
+## What the log sees
+
+Both clients take the interceptors handed to them in
+`KarantinFaceConfig.interceptors`, and the app passes its own
+`DiagnosticsInterceptor` there (`login_form.dart`). Every step of the flow —
+`authorize`, `notify`, the submit, each hop of the redirect chain — therefore
+lands in the diagnostics log the inspector can export.
+
+It was not always so, and the gap was expensive: a login refused with
+`403 permission_denied` left nothing at all in the exported log, which is the
+one failure an inspector cannot work around. The package itself logs nothing
+on its own, because it cannot know where its host keeps evidence.
+
 ## Testing notes
 
 - There is no staging Karantin ID. Every run authenticates against production

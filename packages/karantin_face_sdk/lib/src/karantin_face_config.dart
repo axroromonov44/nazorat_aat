@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart' show Interceptor;
 import 'package:flutter/painting.dart';
 
 /// Configuration for a Karantin ID face-login flow.
@@ -15,6 +16,7 @@ class KarantinFaceConfig {
     this.primaryColor = const Color(0xFF2E7D32),
     this.debugLogging = false,
     this.userAgent = defaultUserAgent,
+    this.interceptors = const [],
     this.strings = const KarantinFaceStrings(),
   });
 
@@ -48,6 +50,11 @@ class KarantinFaceConfig {
 
   /// Sent as `User-Agent` on every Karantin ID call.
   final String userAgent;
+
+  /// Added to both HTTP clients, so the host app can record this flow the same
+  /// way it records its own requests. The package keeps no opinion about
+  /// logging: it cannot know where the app wants its evidence to end up.
+  final List<Interceptor> interceptors;
 
   /// UI strings (Uzbek defaults); override to localise.
   final KarantinFaceStrings strings;
