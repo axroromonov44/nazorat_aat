@@ -30,6 +30,16 @@ class ProfileCubit extends Cubit<User?> {
   Future<void> refresh({bool force = false}) async {
     if (_refreshed && !force) return;
     _refreshed = true;
+
+    // Show what is already known before the request goes out. The access token
+    // carries the name, the roles and the region, and on a fresh login nothing
+    // is cached yet — without this the role chip and the greeting stay blank
+    // until `/users/me` answers, which in the field can be a long time.
+    if (state == null) {
+      final fromToken = await _authRepository.getCurrentUser();
+      if (fromToken != null && state == null && !isClosed) emit(fromToken);
+    }
+
     try {
       final user = await _authRepository.fetchProfile();
       if (!isClosed) emit(user);
