@@ -60,7 +60,7 @@ class DiagnosticsLog {
       _trim();
       record(DiagLevel.info, 'app', '--- new session ---');
     } catch (error) {
-      debugPrint('DiagnosticsLog: could not open ($error)');
+      if (kDebugMode) debugPrint('DiagnosticsLog: could not open ($error)');
     }
   }
 
@@ -114,7 +114,7 @@ class DiagnosticsLog {
     try {
       await box.put(_linesKey, _lines.toList());
     } catch (error) {
-      debugPrint('DiagnosticsLog: could not save ($error)');
+      if (kDebugMode) debugPrint('DiagnosticsLog: could not save ($error)');
     }
   }
 

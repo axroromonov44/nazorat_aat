@@ -230,7 +230,7 @@
     clientId: <span class="c-str">'your_client_id'</span>,
     redirectUri: <span class="c-str">'https://your.app/callback'</span>,
     primaryColor: Color(<span class="c-str">0xFF2E7D32</span>),
-    debugLogging: kDebugMode,
+    <span class="c-com">// interceptors: [MyLogInterceptor()],</span>
   ),
 );
 
@@ -275,7 +275,7 @@
             <tr><td><code>scope</code></td><td class="def">openid profile</td><td>OAuth scope.</td></tr>
             <tr><td><code>authType</code></td><td class="def">login</td><td>OAuth <code>auth_type</code>.</td></tr>
             <tr><td><code>primaryColor</code></td><td class="def">0xFF2E7D32</td><td>Tugma va maydon fokusining aksent rangi.</td></tr>
-            <tr><td><code>debugLogging</code></td><td class="def">false</td><td>Har bir so'rov/javobni log qiladi (<code>kDebugMode</code> ishlating).</td></tr>
+            <tr><td><code>interceptors</code></td><td class="def">[]</td><td>Ikkala Dio mijoziga qo'shiladi — log va diagnostikani o'zingiz ulaysiz.</td></tr>
             <tr><td><code>strings</code></td><td class="def">o'zbekcha</td><td>Barcha UI matni uchun <code>KarantinFaceStrings</code>.</td></tr>
           </tbody>
         </table>

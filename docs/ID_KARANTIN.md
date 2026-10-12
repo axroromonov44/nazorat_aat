@@ -160,8 +160,10 @@ on its own, because it cannot know where its host keeps evidence.
 
 - There is no staging Karantin ID. Every run authenticates against production
   with a real passport or PINFL.
-- `debugLogging` on `KarantinFaceConfig` logs request and response bodies; it
-  is wired to `kDebugMode` in `login_form.dart` so release builds stay quiet.
+- The package logs nothing by itself. `login_form.dart` passes the app's
+  `CompactDioLogger` in `KarantinFaceConfig.interceptors`, and only in debug —
+  `debugPrint` writes in release builds too, so a release device stays silent
+  only because nothing is passed to it.
 - The capture is still un-mirrored while the preview is mirrored, which is the
   one known open item in this flow.
 - The screen light cannot be judged in a widget test: the brightness plugin

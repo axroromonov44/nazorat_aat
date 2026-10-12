@@ -14,7 +14,6 @@ class KarantinFaceConfig {
     this.scope = 'openid profile',
     this.authType = 'login',
     this.primaryColor = const Color(0xFF2E7D32),
-    this.debugLogging = false,
     this.userAgent = defaultUserAgent,
     this.interceptors = const [],
     this.strings = const KarantinFaceStrings(),
@@ -44,9 +43,6 @@ class KarantinFaceConfig {
 
   /// Accent colour for the form button and field focus.
   final Color primaryColor;
-
-  /// When true, logs every request/response to the console (debug only).
-  final bool debugLogging;
 
   /// Sent as `User-Agent` on every Karantin ID call.
   final String userAgent;

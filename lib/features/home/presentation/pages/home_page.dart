@@ -19,12 +19,6 @@ import 'fake_gps_page.dart';
 class HomePage extends StatelessWidget {
   const HomePage({super.key, required this.isDrawing});
 
-  /// Set to `true` while the user is drawing a field polygon on the map.
-  /// Owned by `MainPage`, which hides its own FAB and bottom nav bar for as
-  /// long as this is `true` — otherwise they'd sit on top of the map's own
-  /// drawing bottom bar, since that bar is just a `Positioned` widget inside
-  /// this page's body and can never paint above `MainPage`'s persistent
-  /// chrome on its own.
   final ValueNotifier<bool> isDrawing;
 
   @override
@@ -52,16 +46,9 @@ class _HomeViewState extends State<_HomeView> {
   @override
   void initState() {
     super.initState();
-    // `user/me` is fetched once at app bootstrap, independent of the map
-    // tab — see `MainPage.initState`, not here, so it isn't tied to
-    // this tab ever being opened.
-
     unawaited(_maybeOfferDownloads());
   }
 
-  /// The map extent now comes from SQLite, so deciding what to offer is
-  /// asynchronous. The three-second delay is unchanged: it lets the map settle
-  /// before a dialog covers it.
   Future<void> _maybeOfferDownloads() async {
     final includeCatalog = !getIt<ReferenceRepository>().isCatalogCached();
     if (!mounted) return;
@@ -77,9 +64,6 @@ class _HomeViewState extends State<_HomeView> {
     );
   }
 
-  /// Sends the inspector to whichever screen can actually fix this. The map
-  /// recovers on its own once they come back: the service status stream fires,
-  /// and a permission change is picked up by the retry it triggers.
   Future<void> _resolveLocationBlock(LocationBlock reason) async {
     final repository = getIt<LocationRepository>();
     if (reason == LocationBlock.serviceDisabled) {
@@ -102,9 +86,6 @@ class _HomeViewState extends State<_HomeView> {
             location: location,
             drawingNotifier: widget.isDrawing,
           ),
-          // The map stays on screen behind the banner whenever there is any
-          // position to centre it on, so a blocked inspector keeps their
-          // fields instead of being sent to an error page.
           MapLocationBlocked(:final reason, :final lastKnown, :final message) =>
             lastKnown == null
                 ? _ErrorView(message: message.tr())

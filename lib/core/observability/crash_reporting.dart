@@ -26,7 +26,9 @@ class CrashReporting {
     } catch (error) {
       // Missing or malformed configuration is no reason to stop the app:
       // crash reporting is a bonus, not a feature the inspector needs.
-      debugPrint('CrashReporting: Firebase did not start ($error)');
+      if (kDebugMode) {
+        debugPrint('CrashReporting: Firebase did not start ($error)');
+      }
       return;
     }
 

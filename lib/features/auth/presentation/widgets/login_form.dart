@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:karantin_face_sdk/karantin_face_sdk.dart';
 import '../../../../core/constants/karantin_config.dart';
 import '../../../../core/network/diagnostics_interceptor.dart';
+import '../../../../core/network/dio_debug_logger.dart';
 import '../pages/oneid_webview_page.dart';
 import 'login_metrics.dart';
 
@@ -72,19 +73,24 @@ class _LoginFormState extends State<LoginForm> {
         clientId: KarantinIdConfig.clientId,
         redirectUri: KarantinIdConfig.redirectUri,
         primaryColor: kGreen,
-        debugLogging: kDebugMode,
         // Every step of the login lands in the diagnostics log, like the rest
         // of the app's traffic. Without this a refused login left nothing
         // behind: the one failure an inspector cannot work around was also the
         // one the exported log said nothing about.
-        interceptors: [DiagnosticsInterceptor()],
+        interceptors: [
+          DiagnosticsInterceptor(),
+          // The package carries no logger of its own, so the console gets the
+          // same compact lines as the rest of the app's traffic — and only in
+          // debug builds.
+          if (kDebugMode) CompactDioLogger(),
+        ],
       ),
     );
-    debugPrint('[KarantinID] native face auth returned code=$code');
+    if (kDebugMode) debugPrint('[KarantinID] face auth returned a code');
     if (code != null && code.isNotEmpty) {
       authBloc.add(AuthKarantinLoginRequested(code: code));
     } else {
-      debugPrint('[KarantinID] no code received, login flow aborted');
+      if (kDebugMode) debugPrint('[KarantinID] no code, login aborted');
     }
   }
 

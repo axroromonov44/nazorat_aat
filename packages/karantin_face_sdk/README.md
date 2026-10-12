@@ -65,7 +65,8 @@ final code = await KarantinFace.authenticate(
     // baseUrl: 'https://id.karantin.uz', // standart
     // authType: 'login',                 // standart
     primaryColor: Color(0xFF2E7D32),
-    debugLogging: kDebugMode,
+    // Log va diagnostika sizniki: paket o'zi hech narsa yozmaydi.
+    // interceptors: [MyLogInterceptor()],
   ),
 );
 

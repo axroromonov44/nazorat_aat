@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,6 +10,12 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/karantin_config.dart';
+
+/// Debug-only tracing. `debugPrint` writes in release builds too, and these
+/// lines carry URLs and authorization codes.
+void _log(String message) {
+  if (kDebugMode) debugPrint(message);
+}
 
 const List<String> _iosUserAgents = [
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) '
@@ -92,7 +99,7 @@ class _KarantinWebViewPageState extends State<KarantinWebViewPage> {
     final controller = WebViewController.fromPlatformCreationParams(
       params,
       onPermissionRequest: (request) {
-        debugPrint('[KarantinID] permission request: ${request.types}');
+        _log('[KarantinID] permission request: ${request.types}');
         request.grant();
       },
     );
@@ -105,20 +112,20 @@ class _KarantinWebViewPageState extends State<KarantinWebViewPage> {
     }
 
     final authUrl = KarantinIdConfig.buildAuthorizationUrl();
-    debugPrint('[KarantinID] authorization url: $authUrl');
+    _log('[KarantinID] authorization url: $authUrl');
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setNavigationDelegate(
       NavigationDelegate(
         onPageStarted: (url) {
-          debugPrint('[KarantinID] page started: $url');
+          _log('[KarantinID] page started: $url');
           if (mounted) setState(() => _isLoading = true);
         },
         onPageFinished: (url) {
-          debugPrint('[KarantinID] page finished: $url');
+          _log('[KarantinID] page finished: $url');
           if (mounted) setState(() => _isLoading = false);
         },
         onWebResourceError: (error) {
-          debugPrint(
+          _log(
             'code=${error.errorCode} desc=${error.description} '
             'url=${error.url} isMainFrame=${error.isForMainFrame}',
           );
@@ -134,7 +141,7 @@ class _KarantinWebViewPageState extends State<KarantinWebViewPage> {
   }
 
   Future<List<String>> _onShowFileSelector(FileSelectorParams params) async {
-    debugPrint(
+    _log(
       '[KarantinID] file selector requested, capture=${params.isCaptureEnabled}',
     );
     final picker = ImagePicker();
@@ -180,13 +187,13 @@ class _KarantinWebViewPageState extends State<KarantinWebViewPage> {
   }
 
   NavigationDecision _onNavigationRequest(NavigationRequest request) {
-    debugPrint('[KarantinID] navigation request: ${request.url}');
+    _log('[KarantinID] navigation request: ${request.url}');
     if (_handled || !request.url.startsWith(KarantinIdConfig.redirectUri)) {
       return NavigationDecision.navigate;
     }
     _handled = true;
     final code = Uri.parse(request.url).queryParameters['code'];
-    debugPrint('[KarantinID] redirect caught, code=$code');
+    _log('[KarantinID] redirect caught, code=$code');
     Navigator.of(context).pop(code);
     return NavigationDecision.prevent;
   }

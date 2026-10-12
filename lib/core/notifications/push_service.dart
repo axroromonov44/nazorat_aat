@@ -19,7 +19,7 @@ import '../observability/diagnostics_log.dart';
 /// messages silently stop working.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('[push] background: ${message.messageId}');
+  if (kDebugMode) debugPrint('[push] background: ${message.messageId}');
 }
 
 /// Push notifications.

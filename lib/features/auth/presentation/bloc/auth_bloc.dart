@@ -55,14 +55,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final result = await action();
       emit(AuthAuthenticated(result.user));
     } on ApiException catch (e, st) {
-      debugPrint(
+      _log(
         '[Auth] ApiException: statusCode=${e.statusCode} message=${e.message}',
       );
-      debugPrintStack(stackTrace: st);
+      if (kDebugMode) debugPrintStack(stackTrace: st);
       emit(AuthError(e.message));
     } catch (e, st) {
-      debugPrint('[Auth] unexpected error: $e');
-      debugPrintStack(stackTrace: st);
+      _log('[Auth] unexpected error: $e');
+      if (kDebugMode) debugPrintStack(stackTrace: st);
       emit(AuthError('errorUnexpected'.tr()));
     }
   }
@@ -73,4 +73,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(const AuthUnauthenticated());
   }
+}
+
+/// Debug-only tracing. `debugPrint` writes in release builds too, and these
+/// lines carry URLs and authorization codes.
+void _log(String message) {
+  if (kDebugMode) debugPrint(message);
 }

@@ -43,8 +43,6 @@ Future<PendingMapDownload?> computeRegionalMapDownload(
   final isOnline = context.read<ConnectivityCubit>().state;
   if (!isOnline) return null;
 
-  // Read everything that needs the context before the store is awaited: after
-  // the gap this context may be gone, and the lints that catch that are right.
   final languageCode = context.locale.languageCode;
   final retina = RetinaMode.isHighDensity(context);
 
@@ -119,15 +117,8 @@ class _LocationMapState extends State<LocationMap>
   final List<LatLng> _currentPoints = [];
   Timer? _viewportDebounce;
 
-  /// Whether the map should keep itself centred on the inspector.
-  ///
-  /// The position stream emits every couple of seconds, and recentring on each
-  /// one meant a pan was undone before the finger had left the screen. Panning
-  /// now takes the map off the leash; the my-location button puts it back on.
   bool _followUser = true;
 
-  // The same green a freshly drawn polygon uses: an inspector should not have
-  // to learn that orange and green both mean "field".
   static const _serverFieldFill = Color(0x3300C853);
   static const _serverFieldBorder = _drawingGreen;
   static const _fieldRadiusMeters = 1000.0;
@@ -228,9 +219,6 @@ class _LocationMapState extends State<LocationMap>
     );
   }
 
-  /// Debug builds start with nothing to draw until the backend serves fields,
-  /// which makes the offline behaviour impossible to work on. The repository
-  /// refuses this in release, so it cannot reach a real inspector.
   Future<void> _seedMockFields() async {
     await getIt<FieldRepository>().seedMockFieldsIfEmpty(
       LatLng(widget.location.latitude, widget.location.longitude),
@@ -248,8 +236,6 @@ class _LocationMapState extends State<LocationMap>
     unawaited(_seedMockFields());
 
     Future.delayed(const Duration(milliseconds: 3500), () {
-      // An inspector who started panning during those seconds has said where
-      // they want to be; the intro is not worth overriding that.
       if (!mounted || !_followUser) return;
       _flyTo(
         LatLng(widget.location.latitude, widget.location.longitude),
@@ -289,13 +275,6 @@ class _LocationMapState extends State<LocationMap>
     );
   }
 
-  /// Flies the camera to [target]. Zoom is left exactly where it is unless a
-  /// value is given: following the inspector is a pan, and moving the zoom
-  /// underneath them is not something they asked for.
-  ///
-  /// This used to default to 15.5, which is not even one of [_allowedZooms] —
-  /// so every position update dragged the camera back to it and undid both the
-  /// intro and the inspector's own zoom.
   void _flyTo(LatLng target, {double? zoom}) {
     if (!_mapReady) return;
     final cam = _mapController.camera;
@@ -321,11 +300,6 @@ class _LocationMapState extends State<LocationMap>
     if (oldWidget.location == widget.location) return;
 
     final target = LatLng(widget.location.latitude, widget.location.longitude);
-    // The position stream emits every two seconds whether or not the inspector
-    // moved, and LocationPoint carries a timestamp and an accuracy, so every
-    // emission is a different object. Re-animating for a metre of GPS noise
-    // kept the map twitching under a standing inspector; only a move worth
-    // following is followed.
     if (_distanceCalc.distance(_mapController.camera.center, target) <
         _followMinMeters) {
       return;
@@ -415,9 +389,6 @@ class _LocationMapState extends State<LocationMap>
   static const _maxRadiusMeters = 300.0;
   static const _distanceCalc = Distance();
 
-  /// Below this the map stays put. GPS set to bestForNavigation wanders by a
-  /// few metres while standing still, and chasing that is what made the
-  /// camera appear to drift on its own.
   static const _followMinMeters = 15.0;
 
   void _onMapTap(TapPosition tapPos, LatLng point) {

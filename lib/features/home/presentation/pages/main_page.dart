@@ -31,8 +31,6 @@ class _MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
     unawaited(context.read<ProfileCubit>().refresh());
-    // After login and after the first frame: a dialog cannot be shown over
-    // the splash screen, and the Remote Config request must not slow startup.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(promptForUpdateIfNeeded(context));
     });
@@ -56,9 +54,6 @@ class _MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Neither side icon is "active" while the map/FAB tab is showing — the
-    // package always highlights exactly one of the icons it's given, so an
-    // out-of-range index is how we opt out of highlighting either.
     final navActiveIndex = switch (_tabIndex) {
       _weatherTab => 0,
       _settingsTab => 1,
@@ -81,12 +76,6 @@ class _MainPageState extends State<MainPage> {
               : const SizedBox.shrink(),
         ],
       ),
-      // While a field polygon is being drawn, `LocationMap` shows its own
-      // bottom bar ("Xaritaga bosib nuqta qo'ying" / "Bekor qilish"). That
-      // bar lives inside this Scaffold's `body`, so it can never paint over
-      // our own FAB/bottomNavigationBar — those are always drawn after
-      // (on top of) body. Hiding them here is the only way to let the
-      // drawing bar own the full bottom edge instead of stacking above them.
       floatingActionButton: ValueListenableBuilder<bool>(
         valueListenable: _isDrawingNotifier,
         builder: (context, isDrawing, child) =>
