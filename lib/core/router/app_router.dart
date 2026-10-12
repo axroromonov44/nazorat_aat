@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/home/presentation/pages/main_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
+import '../../features/settings/presentation/pages/settings_page.dart';
 import '../constants/app_colors.dart';
 import '../storage/secure_storage_service.dart';
 import 'navigation_service.dart';
@@ -28,6 +29,10 @@ class AppRouter {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfilePage(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsPage(),
       ),
     ],
   );

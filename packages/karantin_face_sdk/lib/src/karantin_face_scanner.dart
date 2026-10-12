@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show DeviceOrientation, HapticFeedback;
+import 'package:flutter/services.dart' show DeviceOrientation;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 
@@ -16,7 +16,6 @@ import 'face_scan_animation.dart';
 import 'frame_luminance.dart';
 import 'karantin_face_remote_datasource.dart';
 import 'raw_camera_frame.dart';
-import 'screen_torch.dart';
 
 /// Native face scanner, a faithful port of the web client's `FaceDetection`
 /// component + `useFaceDetection` hook.
@@ -34,7 +33,8 @@ class KarantinFaceScanner extends StatefulWidget {
     required this.isUploaded,
     this.onError,
     this.onPermissionDenied,
-    this.onTorchChanged,
+    this.onLowLightChanged,
+    this.torchOn = false,
   });
 
   /// Called once a payload has been captured. The parent performs the upload;
@@ -48,10 +48,15 @@ class KarantinFaceScanner extends StatefulWidget {
   /// can show a platform-native "open settings" dialog.
   final VoidCallback? onPermissionDenied;
 
-  /// Called when the screen light goes on or off, so the page behind the
-  /// scanner can turn pale with it — that backdrop is most of the light the
-  /// face actually gets.
-  final ValueChanged<bool>? onTorchChanged;
+  /// Reports whether the camera is seeing a dark room. The page decides what
+  /// to do about it: the screen light it would switch on is the page's own
+  /// backdrop and the button for it lives in the app bar, so the decision
+  /// cannot sensibly live down here.
+  final ValueChanged<bool>? onLowLightChanged;
+
+  /// Whether that light is currently on, which warms the halo around the
+  /// preview and is the reason the room looks brighter than it is.
+  final bool torchOn;
 
   @override
   State<KarantinFaceScanner> createState() => _KarantinFaceScannerState();
@@ -59,12 +64,13 @@ class KarantinFaceScanner extends StatefulWidget {
 
 class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     with WidgetsBindingObserver {
-  // Accents are picked for the dark backdrop the scanner now sits on: pure
-  // red and pure orange vibrate against near-black, so both are pulled back.
-  static const _readyColor = Color(0xFF4DA3FF); // blue
-  static const _verifiedColor = Color(0xFF2BD96B); // green
-  static const _holdColor = Color(0xFFFFB64D); // amber
-  static const _errorColor = Color(0xFFFF6B70); // red
+  // The scanner sits on a white page: a dark one would have the screen taking
+  // light away from the very face it is trying to read. So the accents are the
+  // deeper end of each hue rather than the glowing end.
+  static const _readyColor = Color(0xFF1B74D8); // blue
+  static const _verifiedColor = Color(0xFF0E9F4F); // green
+  static const _holdColor = Color(0xFFB8761A); // amber
+  static const _errorColor = Color(0xFFD03B3F); // red
   static const _idleColor = Color(0xFF8A94A6); // unlit checklist dot
   static const _lampColor = Color(0xFFFFF4E2); // the screen light's own warmth
 
@@ -108,14 +114,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
   int _readyFrames = 0;
   final List<Rect> _positions = [];
 
-  // Screen light. The front camera has no flash, so "the torch" here means
-  // the screen: brightness pinned to maximum and the page turned pale.
-  final ScreenTorch _torch = ScreenTorch();
   final LowLightDetector _lowLight = LowLightDetector();
-  bool _torchOn = false;
-  // Once the user has pressed the button, the automatic verdict stops moving
-  // it: being overruled by the app you just corrected is infuriating.
-  bool _torchManual = false;
   bool _isDarkRoom = false;
   int _lastLumaMs = 0;
 
@@ -154,15 +153,6 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // The brightness override has to go while the app is away, or the phone
-    // sits at full brightness in the recents list and burns battery there.
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      unawaited(_torch.suspend());
-    } else if (state == AppLifecycleState.resumed) {
-      unawaited(_torch.resume());
-    }
-
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     if (state == AppLifecycleState.inactive ||
@@ -176,9 +166,6 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    // Nothing else restores the brightness while the app stays alive, so
-    // leaving the scanner must hand it back.
-    unawaited(_torch.dispose());
     _countdownTimer?.cancel();
     _stopStream();
     _controller?.dispose();
@@ -289,30 +276,13 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     // again takes a much brighter frame; otherwise the two states would fight.
     final flipped = _lowLight.add(
       estimateFrameLuma(image),
-      brightAbove: _torchOn ? 150 : null,
+      brightAbove: widget.torchOn ? 150 : null,
     );
     if (!flipped || !mounted) return;
 
     final isDark = _lowLight.isDark;
     setState(() => _isDarkRoom = isDark);
-    if (!_torchManual) _setTorch(isDark);
-  }
-
-  void _toggleTorch() {
-    HapticFeedback.selectionClick();
-    _torchManual = true;
-    _setTorch(!_torchOn);
-  }
-
-  void _setTorch(bool on) {
-    if (_torchOn == on) return;
-    setState(() => _torchOn = on);
-    widget.onTorchChanged?.call(on);
-    // The pale backdrop is most of the light, and it costs nothing; the
-    // brightness pin goes through a platform channel that can be slow, or on
-    // some devices never answer at all. Waiting for it would leave the light
-    // half-applied, so it is fired and forgotten.
-    unawaited(on ? _torch.turnOn() : _torch.turnOff());
+    widget.onLowLightChanged?.call(isDark);
   }
 
   Future<void> _processFrame(CameraImage image) async {
@@ -598,10 +568,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     return _errorColor;
   }
 
-  /// With the screen light on, the page behind the scanner is a pale lamp, so
-  /// every accent has to be pulled towards ink to stay readable on it.
-  Color _onSurface(Color color) =>
-      _torchOn ? Color.lerp(color, const Color(0xFF0E1116), 0.42)! : color;
+  bool get _torchOn => widget.torchOn;
 
   String get _statusText {
     if (widget.isUploaded) {
@@ -647,10 +614,12 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
     );
   }
 
+  /// The light is switched from the app bar; this only says why the button up
+  /// there is worth pressing.
   Widget _buildTopBar() {
     final hint = _torchOn
         ? 'Ekran chirogʻi yoniq'
-        : (_isDarkRoom ? 'Yorugʻlik kam' : '');
+        : (_isDarkRoom ? 'Yorugʻlik kam — chiroqni yoqing' : '');
 
     return SizedBox(
       height: 40,
@@ -665,7 +634,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
                   Icon(
                     Icons.wb_incandescent_outlined,
                     size: 16,
-                    color: _onSurface(_holdColor),
+                    color: _holdColor,
                   ),
                   const SizedBox(width: 6),
                   Flexible(
@@ -675,7 +644,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
-                        color: _onSurface(_holdColor),
+                        color: _holdColor,
                       ),
                     ),
                   ),
@@ -683,61 +652,13 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
               ),
             ),
           ),
-          _buildTorchButton(),
         ],
       ),
     );
   }
 
-  Widget _buildTorchButton() {
-    final on = _torchOn;
-    final tint = on ? const Color(0xFF8A5A00) : Colors.white;
-
-    return Semantics(
-      button: true,
-      label: on ? 'Ekran chirogʻini oʻchirish' : 'Ekran chirogʻini yoqish',
-      child: InkWell(
-        onTap: _toggleTorch,
-        borderRadius: BorderRadius.circular(22),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-          decoration: BoxDecoration(
-            color: on
-                ? _lampColor.withValues(alpha: 0.85)
-                : Colors.white.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: on
-                  ? const Color(0xFF8A5A00).withValues(alpha: 0.35)
-                  : Colors.white.withValues(alpha: 0.16),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                on ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
-                size: 18,
-                color: tint,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Chiroq',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: tint,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildStatusPill(Color accent) {
-    final tone = _onSurface(accent);
+    final tone = accent;
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 280),
@@ -755,9 +676,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
         key: ValueKey(_statusText),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
         decoration: BoxDecoration(
-          color: _torchOn
-              ? Colors.black.withValues(alpha: 0.05)
-              : Colors.white.withValues(alpha: 0.06),
+          color: Colors.black.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(26),
           border: Border.all(color: tone.withValues(alpha: 0.38)),
         ),
@@ -796,7 +715,7 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
   }
 
   Widget _buildCheck(String label, bool active) {
-    final color = _onSurface(active ? _verifiedColor : _idleColor);
+    final color = active ? _verifiedColor : _idleColor;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 9),
@@ -931,7 +850,6 @@ class _KarantinFaceScannerState extends State<KarantinFaceScanner>
                   color: accent,
                   stroke: stroke,
                   visible: _cameraReady,
-                  onLight: _torchOn,
                 ),
               ),
             ),
@@ -1174,17 +1092,12 @@ class _ScannerRingPainter extends CustomPainter {
     required this.color,
     required this.stroke,
     required this.visible,
-    required this.onLight,
   });
 
   final double progress;
   final Color color;
   final double stroke;
   final bool visible;
-
-  /// True while the screen light is on, when the unlit ticks have to sit on a
-  /// pale page instead of a dark one.
-  final bool onLight;
 
   static const int _ticks = 72;
 
@@ -1208,8 +1121,7 @@ class _ScannerRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
-      ..color = (onLight ? Colors.black : Colors.white)
-          .withValues(alpha: onLight ? 0.16 : 0.18);
+      ..color = Colors.black.withValues(alpha: 0.14);
 
     final lit = Paint()
       ..style = PaintingStyle.stroke
@@ -1242,8 +1154,7 @@ class _ScannerRingPainter extends CustomPainter {
       old.progress != progress ||
       old.color != color ||
       old.stroke != stroke ||
-      old.visible != visible ||
-      old.onLight != onLight;
+      old.visible != visible;
 }
 
 // ---------------------------------------------------------------------------

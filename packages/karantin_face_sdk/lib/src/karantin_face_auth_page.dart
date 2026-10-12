@@ -15,6 +15,7 @@ import 'karantin_face_remote_datasource.dart';
 import 'karantin_face_scanner.dart';
 import 'karantin_face_session.dart';
 import 'karantin_passport_form.dart';
+import 'screen_torch.dart';
 
 /// The Karantin ID native face-login screen.
 ///
@@ -63,15 +64,21 @@ const _nonFaceTerms = [
 
 const _errorColor = Color(0xFFD32F2F);
 
-// The camera phase runs on its own near-black page: the preview is the only
-// bright thing on screen, and a dark room no longer gets a white page shoved
-// in the user's face.
-const _cameraBackground = Color(0xFF07090C);
+// The camera phase runs on a white page, and that is the point: the front
+// camera has no flash, so the screen is the only light the face gets. A dark
+// page would take even that away.
+const _cameraBackground = Color(0xFFFFFFFF);
 
-// ...unless the screen light is on, when that same page becomes the lamp.
+// With the screen light on it warms up — a lamp rather than a sheet of paper,
+// which is kinder to a face at arm's length.
 const _lampBackground = Color(0xFFFFF4E2);
 
-class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
+// Everything drawn over those two: dark enough to read on either.
+const _cameraForeground = Color(0xFF0E1116);
+const _torchTint = Color(0xFFB8761A);
+
+class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage>
+    with WidgetsBindingObserver {
   late final KarantinFaceRemoteDataSource _dataSource =
       widget.dataSource ?? KarantinFaceRemoteDataSource(config: widget.config);
   late final KarantinDeviceDataCollector _collector =
@@ -90,7 +97,15 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
   bool _isUploading = false;
   bool _isUploaded = false;
   bool _permissionDialogOpen = false;
+
+  // The screen light. It belongs to the page because the page *is* the light:
+  // the backdrop does most of the work, the brightness pin the rest, and the
+  // button for it sits in the app bar.
+  final ScreenTorch _torch = ScreenTorch();
   bool _torchOn = false;
+  // Once the user has pressed the button, the automatic verdict stops moving
+  // it: being overruled by the app you just corrected is infuriating.
+  bool _torchManual = false;
 
   /// The scanner phases own the page's colours; the form and the error view
   /// stay on the ordinary light background.
@@ -104,7 +119,49 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSession();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // Nothing else hands the brightness back while the app stays alive.
+    unawaited(_torch.dispose());
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The override has to go while the app is away, or the phone sits at full
+    // brightness in the recents list and burns battery there.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      unawaited(_torch.suspend());
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_torch.resume());
+    }
+  }
+
+  void _onLowLight(bool isDark) {
+    if (!mounted) return;
+    if (_torchManual) return;
+    _setTorch(isDark);
+  }
+
+  void _toggleTorch() {
+    HapticFeedback.selectionClick();
+    _torchManual = true;
+    _setTorch(!_torchOn);
+  }
+
+  void _setTorch(bool on) {
+    if (_torchOn == on) return;
+    setState(() => _torchOn = on);
+    // The backdrop is most of the light and it costs nothing; the brightness
+    // pin goes through a platform channel that can be slow, or on some devices
+    // never answer at all. Waiting for it would leave the light half-applied.
+    unawaited(on ? _torch.turnOn() : _torch.turnOff());
   }
 
   Future<void> _loadSession() async {
@@ -306,11 +363,6 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
 
   @override
   Widget build(BuildContext context) {
-    final onLamp = _isCameraPhase && _torchOn;
-    final foreground = _isCameraPhase
-        ? (onLamp ? const Color(0xFF0E1116) : Colors.white)
-        : Colors.white;
-
     return Scaffold(
       backgroundColor: _pageColor,
       appBar: AppBar(
@@ -319,11 +371,12 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
         // has no reason to draw a green band across the dark page.
         backgroundColor:
             _isCameraPhase ? Colors.transparent : _config.primaryColor,
-        foregroundColor: foreground,
+        foregroundColor: _isCameraPhase ? _cameraForeground : Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
-        systemOverlayStyle:
-            onLamp ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
+        systemOverlayStyle: _isCameraPhase
+            ? SystemUiOverlayStyle.dark
+            : SystemUiOverlayStyle.light,
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: () {
@@ -331,6 +384,7 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
             Navigator.of(context).pop();
           },
         ),
+        actions: [if (_isCameraPhase) _buildTorchAction()],
       ),
       body: AnimatedContainer(
         duration: const Duration(milliseconds: 280),
@@ -373,6 +427,18 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
     );
   }
 
+  Widget _buildTorchAction() {
+    return IconButton(
+      onPressed: _toggleTorch,
+      tooltip:
+          _torchOn ? 'Ekran chirogʻini oʻchirish' : 'Ekran chirogʻini yoqish',
+      icon: Icon(
+        _torchOn ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+        color: _torchOn ? _torchTint : _cameraForeground,
+      ),
+    );
+  }
+
   Widget _buildBody() {
     switch (_phase) {
       case _Phase.loading:
@@ -404,9 +470,8 @@ class _KarantinFaceAuthPageState extends State<KarantinFaceAuthPage> {
           isUploaded: _isUploaded,
           onError: _showError,
           onPermissionDenied: _onCameraPermissionDenied,
-          onTorchChanged: (on) {
-            if (mounted) setState(() => _torchOn = on);
-          },
+          torchOn: _torchOn,
+          onLowLightChanged: _onLowLight,
         );
     }
   }
