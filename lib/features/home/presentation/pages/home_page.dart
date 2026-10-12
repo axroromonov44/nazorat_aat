@@ -46,7 +46,13 @@ class _HomeViewState extends State<_HomeView> {
   @override
   void initState() {
     super.initState();
-    unawaited(_maybeOfferDownloads());
+    // `computeRegionalMapDownload` reads the locale, and an inherited widget
+    // cannot be read while initState is still running — Flutter reports it,
+    // and the report travels to Crashlytics. Waiting for the first frame also
+    // lets the map draw before anything can cover it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_maybeOfferDownloads());
+    });
   }
 
   Future<void> _maybeOfferDownloads() async {

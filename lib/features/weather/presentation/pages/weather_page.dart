@@ -23,6 +23,21 @@ class _WeatherPageState extends State<WeatherPage> {
   late final WebViewController _controller;
   bool _isLoading = true;
 
+  /// Pushing a route over the WebView and popping it again can leave the
+  /// native view in the tree with nothing drawn in it — the web page is still
+  /// alive, its rendering surface is not. A layout change is what makes a
+  /// platform view redraw, so one pixel for one frame brings it back. The
+  /// alternative, reloading the URL, throws away the forecast the inspector
+  /// was reading and needs the network they may not have.
+  double _redrawNudge = 0;
+
+  Future<void> _redrawWebView() async {
+    if (!mounted) return;
+    setState(() => _redrawNudge = 1);
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    if (mounted) setState(() => _redrawNudge = 0);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -97,11 +112,14 @@ class _WeatherPageState extends State<WeatherPage> {
       appBar: AppBar(
         title: Text('weatherTitle'.tr()),
         centerTitle: true,
-        actions: const [NotificationBellButton()],
+        actions: [NotificationBellButton(onReturn: _redrawWebView)],
       ),
       body: Stack(
         children: [
-          WebViewWidget(controller: _controller),
+          Padding(
+            padding: EdgeInsets.only(bottom: _redrawNudge),
+            child: WebViewWidget(controller: _controller),
+          ),
           if (_isLoading)
             const Center(child: CircularProgressIndicator(color: kGreen)),
         ],

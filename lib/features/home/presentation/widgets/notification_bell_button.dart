@@ -7,7 +7,12 @@ import '../../../../core/utils/haptic.dart';
 import 'notifications_panel.dart';
 
 class NotificationBellButton extends StatelessWidget {
-  const NotificationBellButton({super.key});
+  const NotificationBellButton({super.key, this.onReturn});
+
+  /// Called once the notifications page has been popped. The weather tab uses
+  /// it to bring its WebView back: a platform view covered by a route can
+  /// return with nothing drawn in it.
+  final VoidCallback? onReturn;
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +22,10 @@ class NotificationBellButton extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           IconButton(
-            onPressed: hTap(() => showNotificationsPanel(context)),
+            onPressed: hTap(() async {
+              await showNotificationsPanel(context);
+              onReturn?.call();
+            }),
             icon: const Icon(Icons.notifications_active_outlined),
           ),
           if (items.isNotEmpty)
