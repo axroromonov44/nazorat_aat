@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'karantin_face_config.dart';
 import 'karantin_face_exception.dart';
@@ -30,6 +31,7 @@ class KarantinFaceRemoteDataSource {
     Dio? redirectDio,
     CookieJar? cookieJar,
   })  : _config = config,
+        _cookieJar = cookieJar ?? CookieJar(),
         _dio = dio ??
             Dio(
               BaseOptions(
@@ -49,9 +51,8 @@ class KarantinFaceRemoteDataSource {
                 validateStatus: (status) => status != null && status < 400,
               ),
             ) {
-    final jar = cookieJar ?? CookieJar();
-    _dio.interceptors.add(CookieManager(jar));
-    _redirectDio.interceptors.add(CookieManager(jar));
+    _dio.interceptors.add(CookieManager(_cookieJar));
+    _redirectDio.interceptors.add(CookieManager(_cookieJar));
 
     if (config.debugLogging) {
       _dio.interceptors
@@ -61,6 +62,7 @@ class KarantinFaceRemoteDataSource {
   }
 
   final KarantinFaceConfig _config;
+  final CookieJar _cookieJar;
   final Dio _dio;
   final Dio _redirectDio;
 
@@ -88,6 +90,17 @@ class KarantinFaceRemoteDataSource {
     final uri = _resolve(location);
     final query = uri.queryParameters;
     final path = uri.path;
+
+    if (_config.debugLogging) {
+      final stored = await _cookieJar.loadForRequest(
+        Uri.parse(_config.apiBaseUrl),
+      );
+      debugPrint('[KarantinFace] authorize -> $uri');
+      debugPrint(
+        '[KarantinFace]   session cookies: '
+        '${stored.isEmpty ? '(none)' : stored.map((c) => c.name).join(', ')}',
+      );
+    }
 
     if (path.contains('sign-up')) {
       return KarantinFaceSession(
@@ -221,6 +234,8 @@ class KarantinFaceRemoteDataSource {
       }
     }
 
+    if (_config.debugLogging) await _logFormData(path, form);
+
     final Response<Map<String, dynamic>> response;
     try {
       response = await _dio.post<Map<String, dynamic>>(path, data: form);
@@ -237,6 +252,29 @@ class KarantinFaceRemoteDataSource {
           'Serverdan yoʻnaltirish manzili kelmadi.');
     }
     return redirectTo;
+  }
+
+  /// Dio's own logger prints a multipart body as `Instance of 'FormData'`, so
+  /// a rejected submit says nothing about what was sent. This spells out every
+  /// field, every file and the cookies that went with them.
+  Future<void> _logFormData(String path, FormData form) async {
+    final uri = Uri.parse('${_config.apiBaseUrl}$path');
+    final cookies = await _cookieJar.loadForRequest(uri);
+
+    debugPrint('[KarantinFace] POST $uri');
+    for (final field in form.fields) {
+      debugPrint('[KarantinFace]   field ${field.key} = ${field.value}');
+    }
+    for (final file in form.files) {
+      debugPrint(
+        '[KarantinFace]   file ${file.key} = '
+        '${file.value.filename} (${file.value.length} bytes)',
+      );
+    }
+    debugPrint(
+      '[KarantinFace]   cookies: '
+      '${cookies.isEmpty ? '(none)' : cookies.map((c) => '${c.name}=${c.value}').join('; ')}',
+    );
   }
 
   /// Walks the redirect chain starting at [redirectTo] until it reaches the
