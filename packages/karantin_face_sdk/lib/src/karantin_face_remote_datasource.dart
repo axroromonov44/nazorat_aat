@@ -39,7 +39,7 @@ class KarantinFaceRemoteDataSource {
                 connectTimeout: const Duration(seconds: 30),
                 receiveTimeout: const Duration(seconds: 30),
                 sendTimeout: const Duration(seconds: 30),
-                headers: {'Accept-Language': 'uz'},
+                headers: _browserishHeaders(config),
               ),
             ),
         _redirectDio = redirectDio ??
@@ -49,6 +49,7 @@ class KarantinFaceRemoteDataSource {
                 connectTimeout: const Duration(seconds: 30),
                 receiveTimeout: const Duration(seconds: 30),
                 validateStatus: (status) => status != null && status < 400,
+                headers: _browserishHeaders(config),
               ),
             ) {
     _dio.interceptors.add(CookieManager(_cookieJar));
@@ -67,6 +68,23 @@ class KarantinFaceRemoteDataSource {
   final Dio _redirectDio;
 
   static const int _maxRedirects = 10;
+
+  /// The SPA route `authorize` redirected us to, without its query. The
+  /// browser would be sitting on that page while it posts — and the web client
+  /// strips the token out of its own URL before posting, so the real `Referer`
+  /// never carries it either. Repeating the JWT here would only put it in
+  /// someone's access log.
+  String? _referer;
+
+  /// The headers a browser puts on these calls and a bare HTTP client does
+  /// not. The backend is the same one the web client talks to, and it answers
+  /// `vary: Accept, Cookie, Accept-Language, origin` — it reads them.
+  static Map<String, String> _browserishHeaders(KarantinFaceConfig config) => {
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'uz',
+        'Origin': config.baseUrl,
+        'User-Agent': config.userAgent,
+      };
 
   /// Hits `authorize` and parses the SPA route it redirects to, yielding the
   /// token/name (login, verify-document) or code/state (register).
@@ -90,6 +108,7 @@ class KarantinFaceRemoteDataSource {
     final uri = _resolve(location);
     final query = uri.queryParameters;
     final path = uri.path;
+    _referer = '${uri.origin}${uri.path}';
 
     if (_config.debugLogging) {
       final stored = await _cookieJar.loadForRequest(
@@ -134,6 +153,7 @@ class KarantinFaceRemoteDataSource {
       await _dio.post<void>(
         '/project/notify/login/',
         data: {'token': token, 'passport_number': passportNumber},
+        options: Options(headers: _refererHeader()),
       );
     } on DioException {
       // Non-fatal.
@@ -238,7 +258,11 @@ class KarantinFaceRemoteDataSource {
 
     final Response<Map<String, dynamic>> response;
     try {
-      response = await _dio.post<Map<String, dynamic>>(path, data: form);
+      response = await _dio.post<Map<String, dynamic>>(
+        path,
+        data: form,
+        options: Options(headers: _refererHeader()),
+      );
     } on DioException catch (e) {
       throw KarantinFaceException(
         _faceErrorMessage(e),
@@ -254,6 +278,11 @@ class KarantinFaceRemoteDataSource {
     return redirectTo;
   }
 
+  Map<String, String> _refererHeader() {
+    final referer = _referer;
+    return referer == null ? const {} : {'Referer': referer};
+  }
+
   /// Dio's own logger prints a multipart body as `Instance of 'FormData'`, so
   /// a rejected submit says nothing about what was sent. This spells out every
   /// field, every file and the cookies that went with them.
@@ -263,7 +292,13 @@ class KarantinFaceRemoteDataSource {
 
     debugPrint('[KarantinFace] POST $uri');
     for (final field in form.fields) {
-      debugPrint('[KarantinFace]   field ${field.key} = ${field.value}');
+      // The token is a JWT and Dio's own logger already prints it in full;
+      // enough of it to tell two sessions apart is all this line needs.
+      final value = field.key == 'token'
+          ? '${field.value.substring(0, field.value.length.clamp(0, 12))}… '
+              '(${field.value.length} chars)'
+          : field.value;
+      debugPrint('[KarantinFace]   field ${field.key} = $value');
     }
     for (final file in form.files) {
       debugPrint(

@@ -14,8 +14,16 @@ class KarantinFaceConfig {
     this.authType = 'login',
     this.primaryColor = const Color(0xFF2E7D32),
     this.debugLogging = false,
+    this.userAgent = defaultUserAgent,
     this.strings = const KarantinFaceStrings(),
   });
+
+  /// What a native client calls itself when it has nothing to hide.
+  ///
+  /// The backend's own client is a browser, so if it ever refuses this one on
+  /// the agent alone, pass a browser's string here instead of changing the
+  /// default: the honest value is the right one to try first.
+  static const String defaultUserAgent = 'KarantinFaceSdk/0.1 (Flutter)';
 
   /// OAuth client id issued for your app.
   final String clientId;
@@ -37,6 +45,9 @@ class KarantinFaceConfig {
 
   /// When true, logs every request/response to the console (debug only).
   final bool debugLogging;
+
+  /// Sent as `User-Agent` on every Karantin ID call.
+  final String userAgent;
 
   /// UI strings (Uzbek defaults); override to localise.
   final KarantinFaceStrings strings;

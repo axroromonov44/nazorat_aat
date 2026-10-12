@@ -51,6 +51,33 @@ then walks the `Location` chain — at most ten hops — until a URL starts with
 the configured `redirectUri`, and reads `?code=` off it. Ten is a stop, not a
 target: without it a redirect loop would hang the dialog forever.
 
+## The headers are part of the credential
+
+The body alone is not enough. A submit that carried the right fields and the
+right token was refused with a bare `403 permission_denied` until the request
+also carried what a browser puts on it by itself:
+
+```
+Accept: application/json, text/plain, */*
+Accept-Language: uz
+Origin: https://id.karantin.uz
+Referer: https://id.karantin.uz/sign-in
+User-Agent: …
+```
+
+The server answers `vary: Accept, Cookie, Accept-Language, origin`, so it does
+read them. Which one of them is the one being checked is not known — the set
+mirrors the web client, and it was tested as a set.
+
+`Referer` is the SPA route `authorize` redirected to, with its query removed:
+the web client deletes the token from its own URL (`history.replaceState`)
+before it posts, so the real browser's `Referer` does not carry the JWT
+either, and repeating it would only write the token into an access log.
+
+`User-Agent` names this SDK honestly. If the backend ever refuses it on the
+agent alone, `KarantinFaceConfig.userAgent` takes a browser's string — that is
+a knob, not a default.
+
 ## Two Dio clients, one cookie jar
 
 `KarantinFaceRemoteDataSource` holds two clients on purpose:
@@ -61,9 +88,10 @@ target: without it a redirect loop would hang the dialog forever.
   3xx. The flow *is* the redirects, so they have to arrive as responses
   instead of being resolved away by Dio.
 
-Both share one `CookieJar`. The OAuth session lives in that cookie: if the
-redirect walk used a jar of its own, `authorize` and the submit would be two
-unrelated sessions and the code would never be issued.
+Both share one `CookieJar`, which in practice stays empty: `authorize` sets no
+cookie at all, and the credential is the JWT in the body. The shared jar is
+there so that a cookie the backend may start setting is carried across both
+clients instead of being split between them.
 
 ## Device fields
 
