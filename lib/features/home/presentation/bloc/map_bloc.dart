@@ -68,11 +68,7 @@ class MapBloc extends Bloc<MapEvent, MapState> {
             : MapLocationLoaded(location),
       );
 
-      await _locationSubscription?.cancel();
-      _locationSubscription = _watchLocationUseCase().listen(
-        (loc) => add(MapLocationUpdated(loc)),
-        onError: (Object e) => add(MapLocationError(e.toString())),
-      );
+      await _startWatching();
     } on LocationUnavailable catch (e) {
       // Nothing on screen to fall back on and the platform has not had a
       // chance to settle: wait and ask once more rather than flashing an error
@@ -96,8 +92,26 @@ class MapBloc extends Bloc<MapEvent, MapState> {
       );
     } catch (e) {
       DiagnosticsLog.error(_tag, 'location failed', error: e);
+      // A remembered fix on screen beats an error page. In the field the first
+      // precise fix is often late and sometimes never comes, and the inspector
+      // can work from a slightly stale position — but not from a page that
+      // took the map away. The stream still runs, so the map corrects itself
+      // the moment the platform produces a fix.
+      if (remembered != null) {
+        emit(MapLocationLoaded(remembered, isStale: true));
+        await _startWatching();
+        return;
+      }
       emit(MapLocationFailure(e.toString()));
     }
+  }
+
+  Future<void> _startWatching() async {
+    await _locationSubscription?.cancel();
+    _locationSubscription = _watchLocationUseCase().listen(
+      (loc) => add(MapLocationUpdated(loc)),
+      onError: (Object e) => add(MapLocationError(e.toString())),
+    );
   }
 
   void _onLocationUpdated(MapLocationUpdated event, Emitter<MapState> emit) =>

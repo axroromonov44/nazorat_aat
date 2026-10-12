@@ -24,10 +24,11 @@ class LocationRepositoryImpl implements LocationRepository {
   LocationSettings _locationSettings({
     int distanceFilter = 0,
     Duration interval = const Duration(seconds: 2),
+    LocationAccuracy accuracy = LocationAccuracy.bestForNavigation,
   }) {
     if (Platform.isAndroid) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
+        accuracy: accuracy,
         forceLocationManager: true,
         distanceFilter: distanceFilter,
         // Emit on a fixed interval (not only on movement) so mock-location
@@ -36,15 +37,9 @@ class LocationRepositoryImpl implements LocationRepository {
       );
     }
     if (Platform.isIOS) {
-      return AppleSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: distanceFilter,
-      );
+      return AppleSettings(accuracy: accuracy, distanceFilter: distanceFilter);
     }
-    return LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: distanceFilter,
-    );
+    return LocationSettings(accuracy: accuracy, distanceFilter: distanceFilter);
   }
 
   @override
@@ -52,7 +47,13 @@ class LocationRepositoryImpl implements LocationRepository {
     await _ensurePermission();
     final position =
         await Geolocator.getCurrentPosition(
-          locationSettings: _locationSettings(),
+          // The first fix only has to put the map on the right field; the
+          // stream below sharpens it from there. Asking for navigation-grade
+          // accuracy here is asking for something indoors GPS cannot deliver —
+          // the platform keeps refining and returns nothing at all, so the map
+          // would sit on the timeout while a usable fix was available the
+          // whole time.
+          locationSettings: _locationSettings(accuracy: LocationAccuracy.high),
         ).timeout(
           _timeout,
           onTimeout: () => throw LocationException('locationTimeoutError'.tr()),

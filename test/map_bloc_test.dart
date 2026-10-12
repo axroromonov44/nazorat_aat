@@ -20,6 +20,7 @@ class _FakeLocationRepository implements LocationRepository {
     this.lastKnown,
     this.failures = 0,
     this.alwaysFails = false,
+    this.timesOut = false,
   });
 
   final LocationPoint? lastKnown;
@@ -28,11 +29,16 @@ class _FakeLocationRepository implements LocationRepository {
   final int failures;
   final bool alwaysFails;
 
+  /// The other kind of failure: not something the inspector can fix, just a
+  /// fix that never arrived in time.
+  final bool timesOut;
+
   var calls = 0;
 
   @override
   Future<LocationPoint> getCurrentLocation() async {
     calls++;
+    if (timesOut) throw Exception('locationTimeoutError');
     if (alwaysFails || calls <= failures) {
       throw const LocationUnavailable(
         LocationBlock.serviceDisabled,
@@ -142,6 +148,43 @@ void main() {
 
       expect(bloc.state, isA<MapLocationBlocked>());
       expect((bloc.state as MapLocationBlocked).lastKnown, _point);
+
+      await bloc.close();
+    });
+  });
+
+  group('a fix that never arrives', () {
+    // Indoors the platform can spend the whole timeout refining an accuracy it
+    // will never reach. Taking the map away at that point is the worst of both
+    // worlds: the remembered position was good enough to work from.
+    test('a remembered position stays on screen', () async {
+      final repository = _FakeLocationRepository(
+        lastKnown: _point,
+        timesOut: true,
+      );
+      final bloc = _blocFor(repository);
+      final seen = <MapState>[];
+      final subscription = bloc.stream.listen(seen.add);
+
+      bloc.add(const MapLocationStarted());
+      await Future<void>.delayed(const Duration(seconds: 1));
+
+      expect(seen.whereType<MapLocationFailure>(), isEmpty);
+      expect(bloc.state, isA<MapLocationLoaded>());
+      expect((bloc.state as MapLocationLoaded).isStale, isTrue);
+
+      await subscription.cancel();
+      await bloc.close();
+    });
+
+    test('with nothing remembered it is still reported', () async {
+      final repository = _FakeLocationRepository(timesOut: true);
+      final bloc = _blocFor(repository);
+
+      bloc.add(const MapLocationStarted());
+      await Future<void>.delayed(const Duration(seconds: 1));
+
+      expect(bloc.state, isA<MapLocationFailure>());
 
       await bloc.close();
     });
