@@ -29,7 +29,7 @@ This file does two jobs:
 | Push (FCM) | ✅ working, verified on a real device |
 | CD — Android half | ✅ proven end to end — latest is 1.0.2+29 on the internal track (run 38380695009) |
 | CD — iOS half | ✅ proven end to end — 1.0.2+29 reached TestFlight (run 38380695009) |
-| Dispatching from `develop` | ✅ proven — 1.0.2+29 shipped from the branch, main untouched |
+| Dispatching from `develop` | ✅ proven — 1.0.2+29 shipped from the branch; `main` stays at 1.0.2+26 |
 | Release signing | ✅ verified locally — `flutter build appbundle --release` produces a signed 79 MB AAB |
 | Branch protection on `main` | ⛔ deliberately not enabled |
 | Shorebird code push | ✅ configured (`shorebird.yaml`) |
