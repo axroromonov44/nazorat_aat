@@ -57,8 +57,8 @@ tool/bump_build.sh           # 1.0.1+19 -> 1.0.1+20   (build only — the defaul
 
 # 3. Commit and push, then start the run by hand
 git commit -am "chore: build $(grep '^version:' pubspec.yaml | sed 's/version: //')"
-git push origin main
-gh workflow run release.yml
+git push origin develop
+gh workflow run release.yml --ref develop
 ```
 
 **The build number is the only thing a test build needs.** Both stores order
@@ -79,8 +79,24 @@ So the two paths differ, and the first one is the usual one:
 | | build only | new version name |
 |---|---|---|
 | bump | `tool/bump_build.sh` | `tool/bump_build.sh 1.1.0` |
-| start the run | `gh workflow run release.yml` | `git tag v1.1.0 && git push origin main v1.1.0` |
+| branch | `develop` | `main` |
+| start the run | `gh workflow run release.yml --ref develop` | `git tag v1.1.0 && git push origin main v1.1.0` |
 | tag check | skipped (no `v*` ref) | enforced |
+
+#### Which branch a build comes from
+
+`develop` is the branch work lands on, and test builds are dispatched straight
+from it. Merging it into `main` to ship a test build would carry whatever is
+still unfinished into main's history, which is hard to unpick afterwards; a
+dispatch reaches the same testers and leaves main alone. `release.yml` makes no
+assumption about the branch — its only `ref` check is
+`if: startsWith(github.ref, 'refs/tags/v')`.
+
+`main` is for releases that carry a version name. Those go out by tag, which
+means `develop` is merged into `main` first, deliberately, as its own decision.
+
+CI gates both branches (`push: branches: [main, develop]`), so nothing is
+dispatched from an unverified commit.
 
 The dispatch path is not a workaround. `release.yml` declares
 `workflow_dispatch` precisely so a build can ship without inventing a version
