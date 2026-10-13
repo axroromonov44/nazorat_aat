@@ -615,7 +615,7 @@ the three `InfoPlist.strings`.
 
 ## Where this was left off
 
-Last updated 2026-10-07. Everything below is the state of the repository as it
+Last updated 2026-10-13. Everything below is the state of the repository as it
 actually stands, not a plan.
 
 ### Done and verified
@@ -628,12 +628,25 @@ actually stands, not a plan.
 - Push notifications were tested end to end on a real device.
 - `flutter build appbundle --release` produces a signed bundle, so the signing
   configuration itself is known good.
-- **The Android pipeline has run for real,** twice. `v1.0.1` shipped
-  1.0.1+19 and `v1.0.2` shipped 1.0.2+20; the internal track reports both
-  `completed`. Nothing on that side is theoretical any more.
+- **Both pipelines have run for real.** Android first (`v1.0.1` shipped
+  1.0.1+19, `v1.0.2` shipped 1.0.2+20), then the iOS half from 1.0.2+25. The
+  latest is **1.0.2+29**, dispatched from `develop` on 2026-10-13, green on all
+  three jobs (run 38380695009). Nothing in the pipeline is theoretical.
 - 1.0.2 should have been 1.0.1+20. The version name was raised only because
   the tag path was the one documented — see
   [What "ship to test" means](#what-ship-to-test-means), now corrected.
+- **`develop` is the branch work lands on**, created 2026-10-13. CI gates it
+  alongside `main`, and test builds are dispatched from it — see
+  [Which branch a build comes from](#which-branch-a-build-comes-from). `main`
+  stays at 1.0.2+26 until a version-named release is cut from it.
+- 1.0.2+28 is on the internal track from Android alone: its iOS half failed
+  because Xcode had reverted the Release signing configuration. Fixed, and the
+  trap is written down under
+  [Signing](#signing-the-archive-and-the-export-are-two-steps).
+- The role architecture landed its first two steps (`lib/core/roles/`,
+  per-inspectorate folders, the role settled before the first frame). That is
+  app architecture rather than infrastructure, so it is recorded in
+  [`ROLES.md`](ROLES.md), not here.
 
 ### Deliberately skipped
 
@@ -866,13 +879,10 @@ while Android still reaches Play — a red run is not a broken release.
 
 ### Next steps, in order
 
-1. **Decide on the uncommitted working tree.** `lib/main.dart` has three
-   comments deleted — the ones explaining why `main()` orders
-   `CrashReporting.init()`, `DiagnosticsLog.init()` and `PushService.init()`
-   the way it does. The code is untouched, so this is a style question, not a
-   bug. `pubspec.lock` and `ios/Podfile.lock` also carry patch bumps
-   (`intl 0.20.2 → 0.20.3`, `matcher 0.12.19 → 0.12.20`) that the local gate
-   passed with but CI has never seen.
+1. **Merge `develop` into `main` when a version name is due.** `main` is three
+   builds behind, and it carries the 11 Karantin ID commits only once that
+   merge happens. Nothing is blocked on it — test builds ship from `develop` —
+   but a version-named release has to go out by tag from `main`.
 2. **Wire `onMessageOpened` to navigation.** The handler exists but goes
    nowhere, because which screen to open depends on what `data` the backend
    sends with a push. Needs a decision first, not code.
