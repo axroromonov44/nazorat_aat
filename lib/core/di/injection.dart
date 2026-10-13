@@ -33,6 +33,7 @@ import '../theme/theme_cubit.dart';
 import '../notifications/push_service.dart';
 import '../update/remote_config_service.dart';
 import '../update/shorebird_update_service.dart';
+import '../roles/role_controller.dart';
 import '../router/app_router.dart';
 import '../storage/hive_service.dart';
 import '../storage/map_object_database.dart';
@@ -75,7 +76,13 @@ Future<void> configureDependencies() async {
     () => DioService(getIt<SecureStorageService>()),
   );
 
-  getIt.registerLazySingleton<AppRouter>(() => AppRouter(getIt()));
+  // Registered before AppRouter, which resolves the role into it during the
+  // splash redirect so the shell never builds without one.
+  getIt.registerLazySingleton<RoleController>(() => RoleController());
+
+  getIt.registerLazySingleton<AppRouter>(
+    () => AppRouter(getIt(), getIt(), getIt()),
+  );
 
   getIt.registerLazySingleton<ThemeCubit>(() => ThemeCubit(getIt()));
 
@@ -104,7 +111,7 @@ Future<void> configureDependencies() async {
   );
   getIt.registerFactory<AuthBloc>(() => AuthBloc(getIt(), getIt(), getIt()));
   getIt.registerLazySingleton<ProfileCubit>(
-    () => ProfileCubit(getIt(), getIt()),
+    () => ProfileCubit(getIt(), getIt(), getIt()),
   );
 
   getIt.registerLazySingleton<LocationRepository>(

@@ -5,6 +5,8 @@ import 'core/connectivity/connectivity_cubit.dart';
 import 'core/connectivity/no_internet_banner.dart';
 import 'core/di/injection.dart';
 import 'core/download/app_download_overlay.dart';
+import 'core/roles/role_controller.dart';
+import 'core/roles/role_scope.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_cubit.dart';
@@ -22,29 +24,36 @@ class App extends StatelessWidget {
       BlocProvider(create: (_) => getIt<ProfileCubit>()),
       BlocProvider(create: (_) => getIt<SyncBloc>()..add(const SyncStarted())),
     ],
-    child: BlocBuilder<ThemeCubit, ThemeMode>(
-      builder: (context, themeMode) => MaterialApp.router(
-        onGenerateTitle: (ctx) => 'appTitle'.tr(),
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: themeMode,
-        locale: context.locale,
-        supportedLocales: context.supportedLocales,
-        localizationsDelegates: context.localizationDelegates,
-        routerConfig: getIt<AppRouter>().router,
-        debugShowCheckedModeBanner: false,
-        builder: (context, child) {
-          final mq = MediaQuery.of(context);
-          final isTablet = mq.size.shortestSide >= 600;
-          return MediaQuery(
-            data: isTablet
-                ? mq.copyWith(textScaler: const TextScaler.linear(1.2))
-                : mq,
-            child: AppDownloadOverlay(
-              child: NoInternetBanner(child: child ?? const SizedBox.shrink()),
-            ),
-          );
-        },
+    // Above the router: the shell asks for the signed-in inspector's module
+    // while it builds, and routes live below MaterialApp.
+    child: RoleScope(
+      controller: getIt<RoleController>(),
+      child: BlocBuilder<ThemeCubit, ThemeMode>(
+        builder: (context, themeMode) => MaterialApp.router(
+          onGenerateTitle: (ctx) => 'appTitle'.tr(),
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeMode,
+          locale: context.locale,
+          supportedLocales: context.supportedLocales,
+          localizationsDelegates: context.localizationDelegates,
+          routerConfig: getIt<AppRouter>().router,
+          debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            final mq = MediaQuery.of(context);
+            final isTablet = mq.size.shortestSide >= 600;
+            return MediaQuery(
+              data: isTablet
+                  ? mq.copyWith(textScaler: const TextScaler.linear(1.2))
+                  : mq,
+              child: AppDownloadOverlay(
+                child: NoInternetBanner(
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     ),
   );

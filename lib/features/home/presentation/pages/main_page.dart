@@ -5,11 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/roles/role_module.dart';
-import '../../../../core/roles/role_registry.dart';
+import '../../../../core/roles/role_scope.dart';
 import '../../../../core/update/update_prompt.dart';
 import '../../../../core/utils/haptic.dart';
-import '../../../auth/domain/entities/inspector_role.dart';
-import '../../../auth/domain/entities/user.dart';
 import '../../../auth/presentation/bloc/profile_cubit.dart';
 
 /// The shell every inspector lands in after login.
@@ -55,15 +53,9 @@ class _MainPageState extends State<MainPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Only the role decides the shell, so a selector keeps it from rebuilding
-    // every time another profile field arrives from /users/me.
-    return BlocSelector<ProfileCubit, User?, InspectorRole?>(
-      selector: (user) => user?.inspectorRole,
-      builder: (context, role) => _buildShell(context, moduleFor(role)),
-    );
-  }
-
-  Widget _buildShell(BuildContext context, RoleModule module) {
+    // Settled before this frame - by the splash redirect, or by the login that
+    // brought us here - so the tab bar is right the first time it is painted.
+    final module = RoleScope.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final shell = RoleShell(isDrawing: _isDrawingNotifier);
     final layout = ShellLayout(module.tabs);

@@ -6,14 +6,18 @@ import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/home/presentation/pages/main_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
+import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../constants/app_colors.dart';
+import '../roles/role_controller.dart';
 import '../storage/secure_storage_service.dart';
 import 'navigation_service.dart';
 
 class AppRouter {
-  AppRouter(this._storageService);
+  AppRouter(this._storageService, this._authRepository, this._roleController);
 
   final SecureStorageService _storageService;
+  final AuthRepository _authRepository;
+  final RoleController _roleController;
 
   late final GoRouter router = GoRouter(
     navigatorKey: NavigationService.navigatorKey,
@@ -39,12 +43,16 @@ class AppRouter {
 
   Future<String?> _redirect(BuildContext context, GoRouterState state) async {
     if (state.matchedLocation == '/splash') {
-      final results = await Future.wait([
+      // The role is resolved here, not in the shell: it comes from the token,
+      // which is already on disk, and the shell composes its navigation from
+      // it. Reading it a frame later would swap the tab bar in front of the
+      // inspector once the inspectorates stop declaring the same tabs.
+      final (hasToken, _, _) = await (
         _storageService.hasValidToken(),
+        _roleController.resolveFrom(_authRepository),
         Future<void>.delayed(const Duration(milliseconds: 1500)),
-      ]);
+      ).wait;
       FlutterNativeSplash.remove();
-      final hasToken = results[0] as bool;
       return hasToken ? '/home' : '/login';
     }
     return null;

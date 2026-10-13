@@ -2,9 +2,11 @@ name: CI
 
 # With a single developer there is no second reviewer, so this gate is the
 # reviewer: nothing reaches main without passing analyze and the tests.
+# `develop` is where the work lands first, so it is gated too — a failure found
+# there is one that never reaches main.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
 

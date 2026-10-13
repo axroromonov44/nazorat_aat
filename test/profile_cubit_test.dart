@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:nazorat_aat/core/storage/hive_service.dart';
+import 'package:nazorat_aat/core/roles/role_controller.dart';
+import 'package:nazorat_aat/features/auth/domain/entities/inspector_role.dart';
 import 'package:nazorat_aat/features/auth/domain/entities/user.dart';
 import 'package:nazorat_aat/features/auth/domain/repositories/auth_repository.dart';
 import 'package:nazorat_aat/features/auth/presentation/bloc/profile_cubit.dart';
@@ -13,6 +15,21 @@ const _fromToken = User(
   username: 'axroro',
   fullName: 'Omonov Axrorbek',
   roles: ['OBS'],
+);
+
+/// Roles the shell actually branches on, for the wiring test below.
+const _vetFromToken = User(
+  id: '2178',
+  username: 'axroro',
+  fullName: 'Omonov Axrorbek',
+  roles: ['vet_inspector'],
+);
+
+const _sesFromServer = User(
+  id: '2178',
+  username: 'axroro',
+  fullName: 'Omonov Axrorbek',
+  roles: ['ses_inspector'],
 );
 
 const _fromServer = User(
@@ -50,6 +67,7 @@ class _FakeAuthRepository implements AuthRepository {
 void main() {
   late Directory tempDir;
   late HiveService hive;
+  late RoleController role;
   var boxCount = 0;
 
   setUpAll(() async {
@@ -60,6 +78,7 @@ void main() {
   setUp(() async {
     hive = HiveService()..userBox = await Hive.openBox('user_${boxCount++}');
     await hive.userBox.clear();
+    role = RoleController();
   });
 
   tearDown(() async => hive.userBox.deleteFromDisk());
@@ -72,7 +91,7 @@ void main() {
   group('ProfileCubit.refresh', () {
     test('shows the token user while /users/me is still in flight', () async {
       final repository = _FakeAuthRepository(currentUser: _fromToken);
-      final cubit = ProfileCubit(repository, hive);
+      final cubit = ProfileCubit(repository, hive, role);
 
       final pending = cubit.refresh();
       await pumpEventQueue();
@@ -90,7 +109,7 @@ void main() {
 
     test('a failed fetch leaves the token user on screen', () async {
       final repository = _FakeAuthRepository(currentUser: _fromToken);
-      final cubit = ProfileCubit(repository, hive);
+      final cubit = ProfileCubit(repository, hive, role);
 
       final pending = cubit.refresh();
       await pumpEventQueue();
@@ -101,9 +120,29 @@ void main() {
       await cubit.close();
     });
 
+    // The shell composes its navigation from the role, so every correction the
+    // cubit sees has to reach the controller the shell reads.
+    test('a role the server corrects reaches the shell', () async {
+      final repository = _FakeAuthRepository(currentUser: _vetFromToken);
+      final cubit = ProfileCubit(repository, hive, role);
+
+      final pending = cubit.refresh();
+      await pumpEventQueue();
+      expect(role.value, InspectorRole.veterinary);
+
+      repository.profileCompleter.complete(_sesFromServer);
+      await pending;
+      expect(role.value, InspectorRole.ses);
+
+      // A logout empties the shell through the same path.
+      cubit.reset();
+      expect(role.value, isNull);
+      await cubit.close();
+    });
+
     test('logged out, it emits nothing at all', () async {
       final repository = _FakeAuthRepository();
-      final cubit = ProfileCubit(repository, hive);
+      final cubit = ProfileCubit(repository, hive, role);
 
       final pending = cubit.refresh();
       await pumpEventQueue();

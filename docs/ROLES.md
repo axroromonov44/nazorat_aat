@@ -63,6 +63,8 @@ offending file name. They are not advice.
 lib/core/roles/
   role_module.dart        RoleModule contract, RoleTab, RoleShell, ShellLayout
   role_registry.dart      moduleFor(InspectorRole?) — exhaustive switch
+  role_controller.dart    the live role, a ValueNotifier
+  role_scope.dart         InheritedNotifier above the router
   shared_tabs.dart        weather, map (docked), settings
   shared_only_module.dart fallback for an unrecognised role code
 ```
@@ -71,6 +73,25 @@ lib/core/roles/
 every inspector lands in. It knows nothing about any inspectorate: it reads the
 role, asks `moduleFor` for a module, and builds the navigation from
 `module.tabs`. A role whose screens differ needs **no edit there**.
+
+### The role is settled before the first frame
+
+A widget cannot await, so the role is never resolved inside the shell. It is
+written to `RoleController` by whoever already knows it, and `RoleScope` —
+an `InheritedNotifier` above the router — hands it down synchronously:
+
+| Writer | When |
+|---|---|
+| `AppRouter._redirect` → `resolveFrom(authRepository)` | cold start, in the `/splash` redirect, next to `hasValidToken()` |
+| `LoginPage`'s `AuthAuthenticated` listener | a login, which does not pass through the splash |
+| `ProfileCubit.onChange` | `/users/me` answering, and a logout emitting null |
+
+The token is already on disk, so reading it costs nothing on the splash screen
+that waits 1.5 s anyway. `resolveFrom` swallows a storage failure on purpose:
+the splash is the worst place to throw, an unresolved role means the shared
+shell, and `/users/me` corrects it a moment later. `ValueNotifier` ignores a
+write that changes nothing, so the usual case — the token and the server
+agreeing — costs no rebuild.
 
 `moduleFor` is a `switch` rather than a lookup map on purpose: adding a fourth
 value to `InspectorRole` stops compiling until its module exists, instead of
@@ -171,18 +192,16 @@ role folder" means shared.
 | Step | State |
 |---|---|
 | 1. `RoleModule` skeleton, registry, generic `MainPage` | ✅ done 2026-10-13 — behaviour unchanged, all four modules still declare the same three tabs |
-| 2. `RoleScope` + resolve the role in the `/splash` redirect | ⏳ next |
-| 3. Move shared features to `lib/features/shared/`, GetIt role scope | ⏳ |
+| 2. `RoleController` + `RoleScope`, role resolved in the `/splash` redirect | ✅ done 2026-10-13 |
+| 3. Move shared features to `lib/features/shared/`, GetIt role scope | ⏳ next |
 | 4. `Capability` enum + role-specific `go_router` routes behind a guard | ⏳ |
 
-**Step 2 must land before the modules' tab lists diverge.** `MainPage` reads
-the role from `ProfileCubit`, which resolves asynchronously; while every module
-declares the same tabs that is invisible, but the moment they differ the tab bar
-would show the shared set for a frame and then swap. The role itself is cheap to
-read — it comes from the token, which is already on disk — so it belongs in the
-`/splash` redirect next to `hasValidToken()`, handed down synchronously.
-`ShellLayout.clamp` keeps a stale tab index from overflowing the stack in the
-meantime.
+**Steps 1 and 2 are what had to land before the inspectorates' tab lists
+diverge**, and they have. From here, giving an inspectorate its own screens is
+the procedure above and nothing else — no shell change, and no frame with the
+wrong navigation on it. `ShellLayout.clamp` still guards the one case the
+controller cannot prevent: `/users/me` correcting the role while a tab further
+down a shorter module's list is open.
 
 Step 3 also closes a real leak: role-specific blocs registered as global lazy
 singletons would survive a logout, so the next inspector to sign in on that
@@ -200,6 +219,8 @@ prevent.
 ## Invariants
 
 - `moduleFor` is exhaustive — never a `Map`, never a `default`.
+- The role is settled before the shell builds. A fourth place that learns the
+  role writes it to `RoleController`; the shell never resolves it itself.
 - A module's `tabs.first` is not docked; at most one tab is docked.
 - No inspectorate imports another; nothing but the registry imports a module.
 - No shared file names an individual inspectorate.
@@ -214,4 +235,6 @@ flutter test
 ```
 
 The role-specific tests are `test/role_module_test.dart` (module and layout
-invariants) and `test/role_boundary_test.dart` (the two rules).
+invariants), `test/role_boundary_test.dart` (the two rules) and
+`test/role_scope_test.dart` (resolution and hand-down). `ProfileCubit`'s own
+test covers the correction path from `/users/me`.

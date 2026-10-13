@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/locale/language_switcher.dart';
+import '../../../../core/roles/role_controller.dart';
 import '../../../../core/theme/theme_cubit.dart';
 import '../../../../core/utils/responsive.dart';
 import '../../../sync/presentation/bloc/sync_bloc.dart';
@@ -31,6 +32,9 @@ class _LoginView extends StatelessWidget {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
+          // A login does not pass through the splash, so the role is handed
+          // over here — before /home builds, which is where the shell reads it.
+          getIt<RoleController>().update(state.user.inspectorRole);
           context.read<SyncBloc>().add(const SyncTriggered());
           context.go('/home');
         }
