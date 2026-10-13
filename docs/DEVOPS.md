@@ -818,6 +818,23 @@ With that in place run 37592011891 went green on all three jobs, putting
 1.0.2+25 on the Play internal track and in TestFlight. That is the first time
 the iOS half completed.
 
+> **Xcode puts it back.** Opening `Runner.xcworkspace` and touching anything
+> under Signing & Capabilities rewrites the Release configuration to
+> `CODE_SIGN_STYLE = Automatic`, `CODE_SIGN_IDENTITY = "Apple Development"`
+> and an empty `PROVISIONING_PROFILE_SPECIFIER`, with no prompt and no diff
+> anybody reads — `project.pbxproj` is not a file you review line by line.
+>
+> It happened during the Karantin ID work: run 38378882945 archived for five
+> minutes and failed with the same two errors as above, after the certificate
+> and the profile had both installed cleanly. Android had already uploaded, so
+> the build number had to be burned and the release re-dispatched as
+> 1.0.2+29.
+>
+> **After any visit to Xcode, run the `-showBuildSettings` check above before
+> dispatching a release.** Three lines, no build, and it is the difference
+> between a 12-minute failure and a green run. The three settings also carry a
+> comment in `project.pbxproj` saying this, for whoever reads the file next.
+
 ### When the Apple credentials expire
 
 **2027-10-07.** The distribution certificate and the profile expire the same

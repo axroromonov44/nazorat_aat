@@ -11,11 +11,14 @@
 	<key>teamID</key>
 	<string>PTV6284A36</string>
 
-	<!-- CI installs the profile itself, so the export must not look one up:
-	     the Runner target is CODE_SIGN_STYLE = Automatic, and under automatic
-	     signing xcodebuild fails with "No profiles for 'com.nazorat.aat.uz'
-	     were found" even though the profile is already on disk. The name is
-	     the one inside the profile, not its file name. -->
+	<!-- CI installs the profile itself, so the export must not look one up.
+	     This file governs the export only — the archive signs from the Xcode
+	     project, where the Runner target's Release configuration is
+	     CODE_SIGN_STYLE = Manual against this same profile. Both have to say
+	     manual: with the project on Automatic the archive fails first, with
+	     "No Accounts" and "No profiles for 'com.nazorat.aat.uz' were found",
+	     before the export is ever reached. The name is the one inside the
+	     profile, not its file name. -->
 	<key>signingStyle</key>
 	<string>manual</string>
 	<key>provisioningProfiles</key>
