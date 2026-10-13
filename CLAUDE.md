@@ -4,6 +4,22 @@ An offline-first Flutter app for quarantine, veterinary and sanitary
 inspectors. Inspectors work in the field where the connection is weak or
 absent, so being offline is not the exception — it is the normal case.
 
+## Roles
+
+Three inspectorates — quarantine, veterinary and SES — share one app, and a
+fourth is expected. **Whenever a request names an inspectorate ("this is for
+the veterinary role", "karantin uchun"), read
+[`docs/ROLES.md`](docs/ROLES.md) first and follow the procedure there.** It
+says which folder the code belongs in and how it is wired, so one
+inspectorate's logic cannot run for another.
+
+Two rules, both enforced by `test/role_boundary_test.dart`:
+
+- Role-specific code lives only in `lib/features/<role>/`; from outside, only
+  its module is imported, and only by `lib/core/roles/role_registry.dart`.
+- Shared code never names an inspectorate. It asks what the user may do — the
+  module, later a capability — not who they are.
+
 ## Releases and infrastructure
 
 **Whenever the subject is shipping a build, CI, Crashlytics, push, or the
