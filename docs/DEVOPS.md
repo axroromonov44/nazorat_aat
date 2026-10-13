@@ -21,14 +21,15 @@ This file does two jobs:
 
 | | |
 |---|---|
-| CI (analyze + test + build) | ✅ working, verified locally |
+| CI (analyze + test + build) | ✅ working, gates `main` and `develop` |
 | Firebase project `nazorat-aat` | ✅ created, Android + iOS apps registered |
 | Crashlytics | ✅ wired, config files in place |
 | Diagnostics log | ✅ working |
 | Remote Config update policy | ✅ parameters published |
 | Push (FCM) | ✅ working, verified on a real device |
-| CD — Android half | ✅ proven end to end — latest is 1.0.2+25 on the internal track |
-| CD — iOS half | ✅ proven end to end — 1.0.2+25 reached TestFlight (run 37592011891) |
+| CD — Android half | ✅ proven end to end — latest is 1.0.2+29 on the internal track (run 38380695009) |
+| CD — iOS half | ✅ proven end to end — 1.0.2+29 reached TestFlight (run 38380695009) |
+| Dispatching from `develop` | ✅ proven — 1.0.2+29 shipped from the branch, main untouched |
 | Release signing | ✅ verified locally — `flutter build appbundle --release` produces a signed 79 MB AAB |
 | Branch protection on `main` | ⛔ deliberately not enabled |
 | Shorebird code push | ✅ configured (`shorebird.yaml`) |
