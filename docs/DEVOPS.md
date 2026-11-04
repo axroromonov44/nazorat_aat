@@ -17,6 +17,56 @@ This file does two jobs:
 
 ---
 
+## Apple account migration — 2026-11-04
+
+The iOS Runner and RunnerTests bundle IDs now use `uz.aat.nazorat` and
+`uz.aat.nazorat.RunnerTests`; the Apple team is `H8MA9JW9Z7`.
+Android keeps `com.nazorat.aat.uz`. Firebase project `nazorat-aat` and the
+Shorebird app ID stay unchanged. Historical signing details below describe
+the previous Apple account and are not credentials for this build.
+
+Before a new TestFlight upload:
+
+1. Register `uz.aat.nazorat` with Push Notifications under team `H8MA9JW9Z7`
+   and create its App Store Connect app record.
+2. Create an App Store distribution profile named **Nazorat AAT** for that
+   bundle ID and a distribution certificate from the new team. Replace
+   `IOS_CERTIFICATE_P12`, `IOS_CERTIFICATE_PASSWORD`, and
+   `IOS_PROVISIONING_PROFILE` in GitHub Secrets.
+3. Replace `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, and
+   `APPSTORE_PRIVATE_KEY` with the new account's App Store Connect API key.
+4. Add an iOS app for `uz.aat.nazorat` to the existing Firebase project.
+   Download its real `GoogleService-Info.plist` into `ios/Runner/` and replace
+   `IOS_GOOGLE_SERVICE_INFO_PLIST`. Do not edit the old plist's bundle ID:
+   the Firebase app ID must come from the newly registered app.
+5. Configure the new team's APNs credentials for that Firebase iOS app.
+   The old team's APNs key cannot send notifications for the new team.
+6. Run the release gates below, bump only the build number, then dispatch
+   the release after the new credentials are installed.
+
+Migration status:
+
+- Firebase iOS app `1:980297703068:ios:d7274c9bf2b96bc9eb9759` created in
+  `nazorat-aat`; local plist and `IOS_GOOGLE_SERVICE_INFO_PLIST` updated.
+- Apple App ID `uz.aat.nazorat` registered with Push Notifications enabled.
+- App Store Connect app **6830665878** created under `H8MA9JW9Z7`:
+  https://appstoreconnect.apple.com/apps/6830665878/distribution
+- Existing distribution certificate from `H8MA9JW9Z7` reused (expires
+  2027-11-04), and App Store profile **Nazorat AAT** generated for the new
+  bundle ID. All three signing secrets in GitHub updated.
+- Format, both analyzers, 120 app tests, 17 SDK tests, Android debug build and
+  unsigned iOS device build passed locally. Prepared build: `1.0.2+30`.
+- Signed IPA build and APNs configuration in progress.
+- App Store Connect API access is **not enabled**. The current Admin cannot
+  request it; Account Holder Davron Boltayev must enable it. The user will do
+  that later. `APPSTORE_*` secrets still belong to the previous account;
+  replace them after access is enabled, before dispatching a release.
+- Release workflow now accepts `platform: ios` to avoid publishing an Android
+  build during this iOS account migration. Once credentials are ready:
+  `gh workflow run release.yml --ref develop -f platform=ios`.
+
+---
+
 ## Current state
 
 | | |

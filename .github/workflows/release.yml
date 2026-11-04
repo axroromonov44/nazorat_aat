@@ -16,6 +16,15 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to release
+        type: choice
+        default: all
+        options:
+          - all
+          - android
+          - ios
 
 env:
   FLUTTER_VERSION: "3.47.1"
@@ -66,6 +75,7 @@ jobs:
       - run: flutter test
 
   android:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'ios'
     name: Play Console (internal)
     needs: verify
     runs-on: ubuntu-latest
@@ -112,6 +122,7 @@ jobs:
           status: completed
 
   ios:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform != 'android'
     name: TestFlight
     needs: verify
     runs-on: macos-latest
@@ -129,6 +140,15 @@ jobs:
         env:
           PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
         run: echo "$PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
+
+      - name: Validate Firebase bundle ID
+        run: |
+          EXPECTED=$(/usr/libexec/PlistBuddy -c 'Print :provisioningProfiles' ios/ExportOptions.plist | sed -n 's/^    \(.*\) = .*/\1/p')
+          ACTUAL=$(/usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' ios/Runner/GoogleService-Info.plist)
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::IOS_GOOGLE_SERVICE_INFO_PLIST must belong to $EXPECTED (got $ACTUAL). Register the new iOS app in the existing Firebase project and update the secret."
+            exit 1
+          fi
 
       - name: Import signing certificate
         uses: apple-actions/import-codesign-certs@v3

@@ -123,7 +123,7 @@ jobs:
           <dict>
             <key>API_KEY</key><string>ci-placeholder</string>
             <key>GCM_SENDER_ID</key><string>000000000000</string>
-            <key>BUNDLE_ID</key><string>com.nazorat.aat.uz</string>
+            <key>BUNDLE_ID</key><string>uz.aat.nazorat</string>
             <key>PROJECT_ID</key><string>ci-placeholder</string>
             <key>GOOGLE_APP_ID</key><string>1:000000000000:ios:0000000000000000</string>
             <key>IS_ANALYTICS_ENABLED</key><false/>
