@@ -59,8 +59,17 @@ Migration status:
 - Signed archive and App Store IPA `1.0.2+30` successfully built locally on
   2026-11-04; archive signature verified against `H8MA9JW9Z7`. Local build
   artifacts were cleared before the 2026-11-05 continuation.
-- APNs production key for `uz.aat.nazorat` was prepared and approved by the
-  user; registration and Firebase upload are pending Apple Developer login.
+- APNs production key **9K9KMNTXCH** created on 2026-11-05, restricted to
+  topic `uz.aat.nazorat`. Private-key backup is in `.local-signing/` (ignored
+  by Git). Uploaded to the production APNs slot of Firebase iOS app
+  `1:980297703068:ios:d7274c9bf2b96bc9eb9759`; a fresh console page confirmed
+  key ID `9K9KMNTXCH` and team `H8MA9JW9Z7`. Development APNs is not
+  configured; this key is for TestFlight/App Store builds. End-to-end push
+  delivery still needs a device running the new build.
+- API-free signed CI build passed on 2026-11-05:
+  https://github.com/axroromonov44/nazorat_aat/actions/runs/41966780962
+  Artifact: `ios-ipa-30` (7-day retention). TestFlight upload was deliberately
+  skipped; Android was not released.
 - Workflow saves signed IPA artifacts for 7 days and supports an iOS build
   without uploading: `gh workflow run release.yml --ref develop
   -f platform=ios -f upload_to_testflight=false`. This needs signing secrets,

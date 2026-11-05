@@ -58,6 +58,9 @@ lib/generated_plugin_registrant.dart
 google-services.json
 GoogleService-Info.plist
 firebase_options.dart
+.local-signing/
+*.p8
+*.p12
 
 # Shorebird
 # shorebird.yaml  # uncomment if you don't want to commit shorebird config
