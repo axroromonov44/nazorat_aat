@@ -56,7 +56,15 @@ Migration status:
   bundle ID. All three signing secrets in GitHub updated.
 - Format, both analyzers, 120 app tests, 17 SDK tests, Android debug build and
   unsigned iOS device build passed locally. Prepared build: `1.0.2+30`.
-- Signed IPA build and APNs configuration in progress.
+- Signed archive and App Store IPA `1.0.2+30` successfully built locally on
+  2026-11-04; archive signature verified against `H8MA9JW9Z7`. Local build
+  artifacts were cleared before the 2026-11-05 continuation.
+- APNs production key for `uz.aat.nazorat` was prepared and approved by the
+  user; registration and Firebase upload are pending Apple Developer login.
+- Workflow saves signed IPA artifacts for 7 days and supports an iOS build
+  without uploading: `gh workflow run release.yml --ref develop
+  -f platform=ios -f upload_to_testflight=false`. This needs signing secrets,
+  but does not need App Store Connect API access.
 - App Store Connect API access is **not enabled**. The current Admin cannot
   request it; Account Holder Davron Boltayev must enable it. The user will do
   that later. `APPSTORE_*` secrets still belong to the previous account;

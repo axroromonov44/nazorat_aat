@@ -25,6 +25,10 @@ on:
           - all
           - android
           - ios
+      upload_to_testflight:
+        description: Upload iOS build to TestFlight (disable to only save the signed IPA)
+        type: boolean
+        default: true
 
 env:
   FLUTTER_VERSION: "3.47.1"
@@ -169,9 +173,18 @@ jobs:
       - name: Build IPA
         run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
 
+      - name: Save signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ needs.verify.outputs.build }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 7
+
       # App Store Connect API key, not an Apple ID password: two-factor auth
       # makes the password useless in CI.
       - name: Upload to TestFlight
+        if: github.event_name != 'workflow_dispatch' || inputs.upload_to_testflight
         env:
           KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
